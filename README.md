@@ -14,6 +14,8 @@ tools/icons.mjs         erzeugt die Icons
 tests/app.spec.ts       Tests gegen eine nachgestellte Supabase
 ```
 
+Der Knopf „Jetzt aktualisieren“ bewertet das Depot zu aktuellen Kursen (Edge Function `kurse` im Bot-Repository). Das ist nur eine Anzeige im Arbeitsspeicher: Es wird nichts gespeichert und nicht gehandelt, und die Kurven zeigen weiter die täglichen Läufe.
+
 Alle Namen im Browser (localStorage, Caches, Sitzung) beginnen mit `tb-`, weil auf derselben Domain auch andere Apps liegen. Der Service Worker löscht nur Caches mit diesem Präfix.
 
 ## Tests

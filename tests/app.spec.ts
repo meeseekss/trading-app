@@ -14,6 +14,7 @@ const status = (extra = {}) => ({
   kennzahlen: {
     summary: { value: 101.5, cash: 49.01, deposited: 100, bench: 100.2, cbench: 99.1, fees_total: 0.99, api_usd: 0.002, trades_total: 1, trades_month: 1, runs_total: 2 },
     limits: { crypto_max_class_pct: 35 }, mode: 'paper', has_live_prices: true, stop_datei: false, generated_at: RUNS[0].zeit,
+    benchmark: { symbol: 'EUNL.DE', units: 0.75, pending: 0 }, crypto_benchmark: { units: { XBTEUR: 0.0005, ETHEUR: 0.01 }, pending: 0 },
   }, ...extra,
 });
 
@@ -23,12 +24,18 @@ const SITZUNG = {
   expires_in: 3600, expires_at: 4102444800, user: { id: 'u1', email: 'ich@example.com', aud: 'authenticated', role: 'authenticated' },
 };
 
-async function supabase(page: Page, opt: { status?: object[] } = {}) {
-  const stand = { status: opt.status ?? [status()], patches: [] as object[], registriert: 0 };
+type Kurse = { code?: number; body?: object };
+async function supabase(page: Page, opt: { status?: object[]; kurse?: Kurse } = {}) {
+  const stand = { status: opt.status ?? [status()], patches: [] as object[], registriert: 0, schreibzugriffe: 0, kursAbrufe: 0 };
   await page.route('https://mhueskuqqecqxawtzizr.supabase.co/**', async (route) => {
     const req = route.request(), url = new URL(req.url()), teil = url.pathname;
     const json = (body: unknown, code = 200) => route.fulfill({ status: code, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*', 'Access-Control-Allow-Methods': '*' }, body: JSON.stringify(body) });
     if (req.method() === 'OPTIONS') return json({});
+    if (teil.endsWith('/functions/v1/kurse')) {
+      stand.kursAbrufe += 1;
+      return json(opt.kurse?.body ?? {}, opt.kurse?.code ?? 200);
+    }
+    if (teil.includes('/rest/v1/') && req.method() !== 'GET') stand.schreibzugriffe += 1;
     if (teil.endsWith('/auth/v1/token')) {
       const { password } = req.postDataJSON();
       return password === 'richtig-123' ? json(SITZUNG) : json({ error_code: 'invalid_credentials', msg: 'Invalid login credentials' }, 400);
@@ -146,6 +153,66 @@ test('STOP-Datei des Bots zeigt ebenfalls Not-Aus, Pause mit Grund', async ({ pa
   await expect(page.locator('#banner')).toContainText('Drawdown 25 %');
 });
 
+const ALLE_KURSE = { preise: { 'EUNL.DE': 140, XBTEUR: 90000, ETHEUR: 3000 }, fehlend: [], zeit: '2026-11-06T13:32:00Z' };
+
+test('Jetzt aktualisieren bewertet das Depot neu und speichert nichts', async ({ page }) => {
+  const stand = await supabase(page, { kurse: { body: ALLE_KURSE } });
+  await anmelden(page);
+  await expect(page.locator('#value')).toHaveText(/101,50/);
+  await expect(page.locator('#live-text')).toHaveText('');
+  expect(stand.kursAbrufe).toBe(0); // nur auf Knopfdruck
+
+  await page.click('#live-btn');
+  // 49,01 € Bargeld + 0,38 Stück × 140 € = 102,21 €
+  await expect(page.locator('#value')).toHaveText(/102,21/);
+  await expect(page.locator('#delta')).toContainText('2,21');
+  await expect(page.locator('#positions')).toContainText('53,20');
+  await expect(page.locator('#compare')).toContainText('105,00'); // 0,75 × 140 €
+  await expect(page.locator('#compare')).toContainText('75,00'); // 45 € + 30 €
+  await expect(page.locator('#live-text')).toContainText('nicht gespeichert');
+  await expect(page.locator('#live-text')).not.toContainText('Ohne aktuellen Kurs');
+  expect(stand.schreibzugriffe).toBe(0);
+  // Die Kurven zeigen weiter nur die Läufe.
+  await expect(page.locator('#k-runs')).toHaveText('2');
+  // Pause, damit Yahoo und Kraken nicht dauernd gefragt werden
+  await expect(page.locator('#live-btn')).toBeDisabled();
+});
+
+test('fehlender Kurs: letzter Wert bleibt und die App sagt es', async ({ page }) => {
+  await supabase(page, { kurse: { body: { preise: { XBTEUR: 90000, ETHEUR: 3000 }, fehlend: ['EUNL.DE'], zeit: ALLE_KURSE.zeit } } });
+  await anmelden(page);
+  await page.click('#live-btn');
+  await expect(page.locator('#live-text')).toContainText('Ohne aktuellen Kurs: iShares Core MSCI World');
+  await expect(page.locator('#positions')).toContainText('52,49');
+  await expect(page.locator('#compare')).toContainText('75,00'); // Krypto-Vergleich ist trotzdem aktuell
+  await expect(page.locator('#compare')).toContainText('100,20'); // ETF-Vergleich aus dem letzten Lauf
+});
+
+test('Fehler beim Abruf lässt den Stand vom letzten Lauf stehen', async ({ page }) => {
+  await supabase(page, { kurse: { code: 500, body: { fehler: 'kaputt' } } });
+  await anmelden(page);
+  await page.click('#live-btn');
+  await expect(page.locator('#live-text')).toContainText('gerade nicht abrufbar');
+  await expect(page.locator('#value')).toHaveText(/101,50/);
+});
+
+test('Live-Stand bleibt beim Zurückkehren, ein neuerer Lauf ersetzt ihn', async ({ page }) => {
+  const stand = await supabase(page, { kurse: { body: ALLE_KURSE } });
+  await anmelden(page);
+  await page.click('#live-btn');
+  await expect(page.locator('#value')).toHaveText(/102,21/);
+  const zurueck = () => page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+
+  await zurueck();
+  await page.waitForTimeout(200);
+  await expect(page.locator('#value')).toHaveText(/102,21/);
+
+  stand.status = [status({ letzter_lauf: '2026-11-07T09:15:05+00:00' })];
+  await zurueck();
+  await expect(page.locator('#live-text')).toHaveText('');
+  await expect(page.locator('#value')).toHaveText(/101,50/);
+});
+
 test('Abmelden führt zurück zum Formular', async ({ page }) => {
   await supabase(page);
   await anmelden(page);
@@ -158,7 +225,7 @@ test('passt aufs iPhone: kein seitliches Scrollen, Schaltflächen groß genug', 
   await anmelden(page);
   const breite = await page.evaluate(() => [document.documentElement.scrollWidth, innerWidth]);
   expect(breite[0]).toBeLessThanOrEqual(breite[1]);
-  for (const id of ['#notaus-btn', '#push-btn']) {
+  for (const id of ['#notaus-btn', '#push-btn', '#live-btn']) {
     const box = await page.locator(id).boundingBox();
     expect(box!.height).toBeGreaterThanOrEqual(44);
   }

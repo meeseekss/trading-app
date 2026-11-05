@@ -12,6 +12,8 @@ const sb = createClient(konfig.supabaseUrl, konfig.supabaseKey, {
 });
 
 let notAus = false;
+let live = null; // Letzter Abruf von „Jetzt aktualisieren“, nur im Arbeitsspeicher
+let letzterStand = null;
 
 function ansicht(name) {
   for (const id of ['login', 'hinweis', 'app']) $(id).hidden = id !== name;
@@ -53,6 +55,7 @@ export function zuDashboard(runs, trades, positions, status) {
     },
     summary: k.summary ?? { value: 0, cash: 0, deposited: 0, bench: null, cbench: null, fees_total: 0, api_usd: 0, trades_total: 0, trades_month: 0, runs_total: 0 },
     limits: k.limits ?? {},
+    vergleich: { etf: k.benchmark, krypto: k.crypto_benchmark },
     runs: runs.map((r) => ({
       t: r.zeit, v: r.portfolio_value_eur, c: r.cash_eur, d: r.deposited_eur, b: r.benchmark_value_eur,
       cb: r.crypto_benchmark_value_eur, p: r.orders_proposed, e: r.orders_executed, r: r.rejections ?? [],
@@ -67,6 +70,45 @@ export function zuDashboard(runs, trades, positions, status) {
       pnl_pct: p.pnl_pct, live: p.live,
     })),
   };
+}
+
+const rund = (n) => Math.round(n * 100) / 100;
+
+// Bewertet das Depot zu neuen Kursen, mit denselben Formeln wie dashboard.collect im Bot.
+// Fehlt ein Kurs, bleibt der Wert aus dem letzten Lauf stehen.
+export function mitKursen(daten, preise) {
+  const positions = daten.positions.map((p) => {
+    const kurs = preise[p.symbol];
+    if (!kurs) return p;
+    const value = rund(p.qty * kurs);
+    return { ...p, value, pnl_pct: p.cost ? rund((value / p.cost - 1) * 100) : 0, live: true };
+  }).sort((a, b) => b.value - a.value);
+
+  const { etf, krypto } = daten.vergleich;
+  const summary = { ...daten.summary, value: rund(daten.summary.cash + positions.reduce((s, p) => s + p.value, 0)) };
+  if (etf?.symbol && preise[etf.symbol]) summary.bench = rund(etf.units * preise[etf.symbol] + etf.pending);
+  const stueck = Object.entries(krypto?.units ?? {});
+  if (stueck.length && stueck.every(([s]) => preise[s])) {
+    summary.cbench = rund(stueck.reduce((s, [sym, q]) => s + q * preise[sym], 0) + krypto.pending);
+  }
+  return {
+    ...daten, positions, summary,
+    status: { ...daten.status, has_live_prices: positions.some((p) => p.live) },
+  };
+}
+
+const uhrzeit = new Intl.DateTimeFormat('de-DE', { hour: '2-digit', minute: '2-digit' });
+
+function zeigeLive(daten) {
+  if (!live) {
+    $('live-text').textContent = '';
+    return daten;
+  }
+  const neu = mitKursen(daten, live.preise);
+  const namen = live.fehlend.map((s) => daten.positions.find((p) => p.symbol === s)?.name ?? s);
+  $('live-text').textContent = `Live-Stand von ${uhrzeit.format(new Date(live.zeit))} Uhr, nicht gespeichert.`
+    + (namen.length ? ` Ohne aktuellen Kurs: ${namen.join(', ')}.` : '');
+  return { ...neu, generated_at: live.zeit };
 }
 
 async function laden() {
@@ -85,7 +127,10 @@ async function laden() {
     }
     notAus = status[0].not_aus;
     ansicht('app');
-    zeigen(zuDashboard(runs.reverse(), trades, positions, status[0]));
+    // Ein neuerer Lauf ist genauer als der letzte Abruf.
+    if (live && new Date(status[0].letzter_lauf) > new Date(live.zeit)) live = null;
+    letzterStand = zuDashboard(runs.reverse(), trades, positions, status[0]);
+    zeigen(zeigeLive(letzterStand));
     zeigeNotAus(status[0]);
     await zeigePush();
   } catch (e) {
@@ -180,6 +225,27 @@ $('notaus-btn').addEventListener('click', async () => {
   } finally {
     $('notaus-btn').disabled = false;
   }
+});
+
+// ───────── Jetzt aktualisieren ─────────
+
+const LIVE_PAUSE = 30000; // schont Yahoo und Kraken
+
+$('live-btn').addEventListener('click', async () => {
+  const btn = $('live-btn');
+  btn.disabled = true;
+  $('live-text').textContent = 'Kurse werden geholt …';
+  try {
+    const antwort = pruefe(await sb.functions.invoke('kurse', { method: 'POST' }));
+    if (!Object.keys(antwort?.preise ?? {}).length) throw new Error('keine Kurse');
+    live = { preise: antwort.preise, fehlend: antwort.fehlend ?? [], zeit: antwort.zeit };
+    zeigen(zeigeLive(letzterStand));
+  } catch {
+    $('live-text').textContent = live
+      ? 'Aktuelle Kurse gerade nicht abrufbar. Der letzte Live-Stand bleibt.'
+      : 'Aktuelle Kurse gerade nicht abrufbar. Der Stand vom letzten Lauf bleibt.';
+  }
+  setTimeout(() => { btn.disabled = false; }, LIVE_PAUSE);
 });
 
 // ───────── Mitteilungen ─────────
