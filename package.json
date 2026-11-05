@@ -1,0 +1,13 @@
+{
+  "name": "trading-app",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Web-App für den Trading-Bot",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.0"
+  }
+}
