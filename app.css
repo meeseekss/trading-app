@@ -233,6 +233,13 @@ main.wrap { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
 .btn:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .linkbtn { border: 0; background: none; color: var(--text-3); font: inherit; font-size: 12px; text-decoration: underline; cursor: pointer; padding: 8px; }
 
+/* Werte im Depot unter dem Depotwert */
+.holdings { display: grid; gap: 10px; margin-top: 14px; max-width: 460px; }
+.holdings:empty { display: none; }
+.holding-top { display: flex; justify-content: space-between; gap: 16px; font-weight: 500; }
+.holding-top .v { white-space: nowrap; }
+.holding-sub { color: var(--text-3); font-size: 13px; }
+
 /* Knopf „Jetzt aktualisieren“ */
 .live { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin-top: 14px; }
 .live .s { color: var(--text-3); font-size: 13px; }

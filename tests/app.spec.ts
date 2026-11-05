@@ -25,7 +25,7 @@ const SITZUNG = {
 };
 
 type Kurse = { code?: number; body?: object };
-async function supabase(page: Page, opt: { status?: object[]; kurse?: Kurse } = {}) {
+async function supabase(page: Page, opt: { status?: object[]; kurse?: Kurse; positions?: object[] } = {}) {
   const stand = { status: opt.status ?? [status()], patches: [] as object[], registriert: 0, schreibzugriffe: 0, kursAbrufe: 0 };
   await page.route('https://mhueskuqqecqxawtzizr.supabase.co/**', async (route) => {
     const req = route.request(), url = new URL(req.url()), teil = url.pathname;
@@ -44,7 +44,7 @@ async function supabase(page: Page, opt: { status?: object[]; kurse?: Kurse } = 
     if (teil.endsWith('/auth/v1/logout')) return json({});
     if (teil.endsWith('/rest/v1/runs')) return json(RUNS);
     if (teil.endsWith('/rest/v1/trades')) return json(TRADES);
-    if (teil.endsWith('/rest/v1/positions')) return json(POSITIONS);
+    if (teil.endsWith('/rest/v1/positions')) return json(opt.positions ?? POSITIONS);
     if (teil.endsWith('/rest/v1/status')) {
       if (req.method() === 'PATCH') {
         const neu = req.postDataJSON();
@@ -218,6 +218,29 @@ test('Trades zeigen Stückzahl und Ausführungskurs', async ({ page }) => {
   await anmelden(page);
   await expect(page.locator('#trades .how')).toContainText('0,38 Stück zu je 130,60 €');
   await expect(page.locator('#trades .how')).toContainText('inkl. Spread');
+});
+
+test('unter dem Depotwert stehen Wert, Gewinn und Kurs je Position', async ({ page }) => {
+  await supabase(page, { kurse: { body: ALLE_KURSE } });
+  await anmelden(page);
+  const zeile = page.locator('#holdings .holding');
+  await expect(zeile).toHaveCount(1);
+  await expect(zeile).toContainText('iShares Core MSCI World');
+  await expect(zeile).toContainText('52,49 €');
+  await expect(zeile).toContainText('5,0 %');
+  await expect(zeile).toContainText('Kurs 138,13 €'); // 52,49 € / 0,38 Stück
+
+  await page.click('#live-btn');
+  await expect(zeile).toContainText('53,20 €');
+  await expect(zeile).toContainText('Kurs 140,00 €');
+  await expect(zeile).toContainText('6,4 %');
+});
+
+test('ohne Positionen bleibt der Bereich unter dem Depotwert leer', async ({ page }) => {
+  await supabase(page, { positions: [] });
+  await anmelden(page);
+  await expect(page.locator('#holdings .holding')).toHaveCount(0);
+  await expect(page.locator('#holdings')).toBeHidden();
 });
 
 test('Abmelden führt zurück zum Formular', async ({ page }) => {

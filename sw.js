@@ -2,7 +2,7 @@
 // Strategie „erst Netz, dann Zwischenspeicher“: Neue Versionen kommen sofort an.
 
 // Auf dieser Domain liegt auch Wir zwei. Darum nur Caches mit dem Präfix „tb-“ anfassen.
-const SPEICHER = 'tb-v3';
+const SPEICHER = 'tb-v4';
 const GRUNDGERUEST = [
   './',
   './index.html',

@@ -214,6 +214,10 @@ function renderStatic() {
   const pl = S.value - S.deposited, plp = S.deposited ? pl / S.deposited * 100 : 0;
   $("delta").innerHTML = `<span class="${dirClass(pl)}">${arrow(pl)}${signed(pl)} (${signed(plp, pct).replace("€", "")} %)</span> · ${eur.format(S.deposited)} eingezahlt`;
 
+  $("holdings").innerHTML = DATA.positions.map(p => { const g = p.value - p.cost, kurs = p.kurs ?? (p.qty ? p.value / p.qty : null);
+    return `<div class="holding"><div class="holding-top"><span>${esc(p.name)}</span><span class="v num">${eur.format(p.value)}</span></div>
+      <div class="holding-sub num"><span class="${dirClass(g)}">${arrow(g)}${pct.format(Math.abs(p.pnl_pct))} %</span>${kurs ? ` · Kurs ${eur.format(kurs)}` : ""}</div></div>`; }).join("");
+
   const cmp = [];
   if (S.bench != null) cmp.push({ n: "vs. ETF-Sparplan", c: "--s-etf", ref: S.bench });
   if (S.cbench != null) cmp.push({ n: "vs. Krypto halten", c: "--s-crypto", ref: S.cbench });

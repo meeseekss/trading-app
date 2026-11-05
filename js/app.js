@@ -81,7 +81,7 @@ export function mitKursen(daten, preise) {
     const kurs = preise[p.symbol];
     if (!kurs) return p;
     const value = rund(p.qty * kurs);
-    return { ...p, value, pnl_pct: p.cost ? rund((value / p.cost - 1) * 100) : 0, live: true };
+    return { ...p, value, kurs, pnl_pct: p.cost ? rund((value / p.cost - 1) * 100) : 0, live: true };
   }).sort((a, b) => b.value - a.value);
 
   const { etf, krypto } = daten.vergleich;
