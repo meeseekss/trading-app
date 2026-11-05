@@ -44,7 +44,7 @@ function pruefe({ data, error }) {
 // ───────── Daten ─────────
 
 // Bringt die Tabellen in die Form, die dashboard.js aus dem Bot kennt.
-export function zuDashboard(runs, trades, positions, status) {
+export function zuDashboard(runs, trades, positions, kaeufe, status) {
   const k = status.kennzahlen ?? {};
   const stopped = status.not_aus || Boolean(k.stop_datei);
   return {
@@ -53,12 +53,15 @@ export function zuDashboard(runs, trades, positions, status) {
       mode: k.mode ?? 'paper', paused: status.pause, pause_reason: status.grund, stopped,
       last_run: status.letzter_lauf, has_live_prices: Boolean(k.has_live_prices),
     },
-    summary: k.summary ?? { value: 0, cash: 0, deposited: 0, bench: null, cbench: null, fees_total: 0, api_usd: 0, trades_total: 0, trades_month: 0, runs_total: 0 },
+    summary: k.summary ?? { value: 0, cash: 0, deposited: 0, bench: null, fees_total: 0, api_usd: 0, trades_total: 0, trades_month: 0, runs_total: 0 },
     limits: k.limits ?? {},
-    vergleich: { etf: k.benchmark, krypto: k.crypto_benchmark },
+    sparplan: {
+      symbol: null, name: null, units: 0, pending: 0, price: null, ...k.benchmark,
+      buys: kaeufe.map((b) => ({ t: b.zeit, amount: b.betrag_eur, price: b.kurs_eur, units: b.anteile })),
+    },
     runs: runs.map((r) => ({
       t: r.zeit, v: r.portfolio_value_eur, c: r.cash_eur, d: r.deposited_eur, b: r.benchmark_value_eur,
-      cb: r.crypto_benchmark_value_eur, p: r.orders_proposed, e: r.orders_executed, r: r.rejections ?? [],
+      p: r.orders_proposed, e: r.orders_executed, r: r.rejections ?? [],
       view: r.market_view ?? '', api: r.api_cost_usd_total,
     })),
     trades: trades.map((t) => ({
@@ -66,7 +69,7 @@ export function zuDashboard(runs, trades, positions, status) {
       amount: t.amount_eur, fee: t.fee_eur, conf: t.confidence, reason: t.reason,
     })),
     positions: positions.map((p) => ({
-      symbol: p.symbol, name: p.name, cls: p.asset_class, qty: p.qty, value: p.value_eur, cost: p.cost_eur,
+      symbol: p.symbol, name: p.name, cls: p.asset_class, tier: p.tier, qty: p.qty, value: p.value_eur, cost: p.cost_eur,
       pnl_pct: p.pnl_pct, live: p.live,
     })),
   };
@@ -84,15 +87,15 @@ export function mitKursen(daten, preise) {
     return { ...p, value, kurs, pnl_pct: p.cost ? rund((value / p.cost - 1) * 100) : 0, live: true };
   }).sort((a, b) => b.value - a.value);
 
-  const { etf, krypto } = daten.vergleich;
+  let { sparplan } = daten;
   const summary = { ...daten.summary, value: rund(daten.summary.cash + positions.reduce((s, p) => s + p.value, 0)) };
-  if (etf?.symbol && preise[etf.symbol]) summary.bench = rund(etf.units * preise[etf.symbol] + etf.pending);
-  const stueck = Object.entries(krypto?.units ?? {});
-  if (stueck.length && stueck.every(([s]) => preise[s])) {
-    summary.cbench = rund(stueck.reduce((s, [sym, q]) => s + q * preise[sym], 0) + krypto.pending);
+  const kursPlan = preise[sparplan.symbol];
+  if (kursPlan) {
+    summary.bench = rund(sparplan.units * kursPlan + sparplan.pending);
+    sparplan = { ...sparplan, price: kursPlan };
   }
   return {
-    ...daten, positions, summary,
+    ...daten, positions, summary, sparplan,
     status: { ...daten.status, has_live_prices: positions.some((p) => p.live) },
   };
 }
@@ -113,11 +116,12 @@ function zeigeLive(daten) {
 
 async function laden() {
   try {
-    const [runs, trades, positions, status] = await Promise.all([
+    const [runs, trades, positions, kaeufe, status] = await Promise.all([
       // Der Server liefert höchstens 1000 Zeilen, deshalb die neuesten holen und dann umdrehen.
       sb.from('runs').select('*').order('zeit', { ascending: false }).limit(1000).then(pruefe),
       sb.from('trades').select('*').order('zeit', { ascending: false }).order('nr').limit(1000).then(pruefe),
       sb.from('positions').select('*').order('value_eur', { ascending: false }).then(pruefe),
+      sb.from('sparplan_kaeufe').select('*').order('zeit', { ascending: false }).limit(1000).then(pruefe),
       sb.from('status').select('*').eq('id', 1).then(pruefe),
     ]);
     // Ohne Zugriffsregel für dieses Konto liefert die Datenbank einfach nichts.
@@ -129,7 +133,7 @@ async function laden() {
     ansicht('app');
     // Ein neuerer Lauf ist genauer als der letzte Abruf.
     if (live && new Date(status[0].letzter_lauf) > new Date(live.zeit)) live = null;
-    letzterStand = zuDashboard(runs.reverse(), trades, positions, status[0]);
+    letzterStand = zuDashboard(runs.reverse(), trades, positions, kaeufe, status[0]);
     zeigen(zeigeLive(letzterStand));
     zeigeNotAus(status[0]);
     await zeigePush();
@@ -300,7 +304,13 @@ $('push-btn').addEventListener('click', async () => {
 
 // ───────── Start ─────────
 
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js', { scope: './' }).catch(() => {});
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js', { scope: './' }).catch(() => {});
+  // Antippen einer Mitteilung, während die App schon offen ist: zum Ziel wechseln.
+  navigator.serviceWorker.addEventListener('message', (ev) => {
+    if (ev.data?.ziel) location.hash = new URL(ev.data.ziel, location.href).hash;
+  });
+}
 
 // Beim Zurückkehren in die App den neuesten Stand holen.
 document.addEventListener('visibilitychange', async () => {

@@ -1,5 +1,5 @@
-// Darstellung und Diagramme, übernommen aus dashboard_template.html des Bots.
-// Einziger Unterschied: Die Daten kommen über zeigen() aus Supabase statt eingebettet.
+// Darstellung, Diagramme und Tabs. Die App bekommt die Daten über zeigen() aus Supabase.
+// data/dashboard.html des Bots nutzt denselben Code, tools/vorlage.mjs baut daraus dashboard_template.html.
 
 let DATA = null;
 
@@ -9,6 +9,8 @@ const eur0 = new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR"
 const usd = new Intl.NumberFormat("de-DE", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 3 });
 const pct = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1, minimumFractionDigits: 1 });
 const stueck = new Intl.NumberFormat("de-DE", { maximumSignificantDigits: 6 });
+const eurKlein = new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR", maximumSignificantDigits: 4 });
+const kursEur = n => (n >= 1 ? eur : eurKlein).format(n); // Pepe kostet Bruchteile eines Cents
 const dShort = new Intl.DateTimeFormat("de-DE", { day: "numeric", month: "short" });
 const dLong = new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "numeric", month: "long", year: "numeric" });
 const dTime = new Intl.DateTimeFormat("de-DE", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
@@ -31,11 +33,17 @@ try { range = Number(localStorage.getItem("tb-range") ?? 0); } catch (e) {}
 try { unit = localStorage.getItem("tb-unit") || "pct"; } catch (e) {}
 try { const th = localStorage.getItem("tb-theme"); if (th) document.documentElement.dataset.theme = th; } catch (e) {}
 
-const SERIES = [
-  { key: "v", name: "Bot", color: "--s-bot", width: 2.5 },
-  { key: "b", name: "ETF-Sparplan", color: "--s-etf", width: 2 },
-  { key: "cb", name: "Krypto halten", color: "--s-crypto", width: 2 },
-];
+const BOT = { key: "v", name: "Bot", color: "--s-bot", width: 2.5 };
+const SPARPLAN = { key: "b", name: "Sparplan", color: "--s-etf", width: 2.5 };
+const TIERS = {
+  core: { n: "Krypto Basis", tag: "Basis", c: "--s-core" },
+  alt: { n: "Krypto Altcoins", tag: "Altcoin", c: "--s-alt" },
+  risk: { n: "Krypto Risiko", tag: "Risiko", c: "--s-risk" },
+};
+const tagFor = p => p.cls === "etf" ? "ETF" : TIERS[p.tier]?.tag ?? "Krypto";
+const tagHtml = p => `<span class="tag${p.tier === "risk" ? " risk" : ""}">${tagFor(p)}</span>`;
+const rendite = (wert, ein) => ein ? (wert / ein - 1) * 100 : 0;
+const pctS = n => signed(n, pct).replace("€", "");
 
 /* ---------- Tooltip ---------- */
 const tip = $("tip");
@@ -66,23 +74,21 @@ function filtered() {
 }
 
 /* ---------- Liniendiagramm ---------- */
-function lineChart() {
-  const el = $("chart1"); el.innerHTML = "";
+function lineChart({ id, series: wanted, P = false, legend, hint, table, aria }) {
+  const el = $(id); el.innerHTML = "";
   const runs = filtered();
-  const series = SERIES.filter(s => runs.some(r => r[s.key] != null));
-  const P = unit === "pct";
+  const series = wanted.filter(s => runs.some(r => r[s.key] != null));
   const val = (r, k) => r[k] == null ? null : P ? (r.d ? (r[k] / r.d - 1) * 100 : null) : r[k];
   const fmtY = v => P ? signed(v, pct).replace("±", "") + " %" : eur0.format(v);
-  $("hint1").textContent = P ? "Gewinn oder Verlust in Prozent der Einzahlungen" : "Depotwert in Euro, inklusive aller Einzahlungen";
-  $("legend1").innerHTML = series.map(s =>
+  if (hint) $(hint).textContent = P ? "Gewinn oder Verlust in Prozent der Einzahlungen" : "Wert in Euro, inklusive aller Einzahlungen";
+  if (legend) $(legend).innerHTML = series.map(s =>
     `<span><i class="swatch line" style="background:var(${s.color})"></i>${s.name}</span>`).join("")
     + (P ? "" : `<span><i class="swatch dash"></i>Eingezahlt</span>`);
   if (runs.length < 2) { el.innerHTML = `<div class="empty">${runs.length ? "Nach dem zweiten Lauf erscheint hier die Kurve." : "Noch keine Läufe. Der erste läuft werktags um 10:15."}</div>`; return; }
 
   const W = el.clientWidth, H = W < 600 ? 230 : 300;
-  const m = { t: 12, r: W < 600 ? 12 : 104, b: 28, l: 52 };
-  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, height: H, role: "img",
-    "aria-label": "Wertentwicklung von Bot, ETF-Sparplan und Krypto halten" }, el);
+  const m = { t: 12, r: W < 600 || wanted.length < 2 ? 12 : 84, b: 28, l: 52 };
+  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, height: H, role: "img", "aria-label": aria }, el);
   const xs = runs.map(r => toDate(r.t).getTime());
   const x0 = xs[0], x1 = xs[xs.length - 1];
   const vals = runs.flatMap(r => [...series.map(s => val(r, s.key)), P ? 0 : r.d]).filter(v => v != null);
@@ -152,19 +158,19 @@ function lineChart() {
   hit.addEventListener("touchend", leave);
 
   // Tabellenansicht
-  $("table1").innerHTML = `<table><thead><tr><th>Datum</th>${series.map(s => `<th class="r">${s.name}</th>`).join("")}<th class="r">Eingezahlt</th></tr></thead><tbody>` +
+  if (table) $(table).innerHTML = `<table><thead><tr><th>Datum</th>${series.map(s => `<th class="r">${s.name}</th>`).join("")}<th class="r">Eingezahlt</th></tr></thead><tbody>` +
     [...runs].reverse().map(r => `<tr><td>${dTime.format(toDate(r.t))}</td>${series.map(s => `<td class="r">${r[s.key] == null ? "–" : eur.format(r[s.key])}</td>`).join("")}<td class="r">${eur.format(r.d ?? 0)}</td></tr>`).join("") +
     `</tbody></table>`;
 }
 
 /* ---------- Balken: Vorsprung ---------- */
 function barChart() {
-  const el = $("chart2"); el.innerHTML = "";
+  const el = $("chart-lead"); el.innerHTML = "";
   const runs = filtered().filter(r => r.b != null);
   if (runs.length < 2) { el.innerHTML = `<div class="empty">Erscheint, sobald es mehrere Läufe gibt.</div>`; return; }
   const W = el.clientWidth, H = W < 600 ? 150 : 180;
   const m = { t: 10, r: 12, b: 26, l: 52 };
-  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, height: H, role: "img", "aria-label": "Vorsprung des Bots gegenüber dem ETF-Sparplan in Euro" }, el);
+  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, height: H, role: "img", "aria-label": "Vorsprung des Bots gegenüber dem Sparplan in Euro" }, el);
   const diffs = runs.map(r => r.v - r.b);
   const ext = Math.max(0.5, ...diffs.map(Math.abs));
   const { lo, hi, ticks } = niceTicks(Math.min(0, ...diffs, -ext * 0.25), Math.max(0, ...diffs, ext * 0.25), 3);
@@ -187,7 +193,7 @@ function barChart() {
       showTip(`<div class="h">${dLong.format(toDate(r.t))}</div>
         <div class="row"><span class="n">Vorsprung</span><span class="v ${dirClass(d)}">${arrow(d)}${signed(d)}</span></div>
         <div class="row"><span class="n">Bot</span><span class="v">${eur.format(r.v)}</span></div>
-        <div class="row"><span class="n">ETF-Sparplan</span><span class="v">${eur.format(r.b)}</span></div>`, pt.clientX, pt.clientY); };
+        <div class="row"><span class="n">Sparplan</span><span class="v">${eur.format(r.b)}</span></div>`, pt.clientX, pt.clientY); };
     hit.addEventListener("mousemove", show); hit.addEventListener("mouseleave", hideTip);
     hit.addEventListener("touchstart", show, { passive: true }); hit.addEventListener("touchend", hideTip);
   });
@@ -215,16 +221,8 @@ function renderStatic() {
   $("delta").innerHTML = `<span class="${dirClass(pl)}">${arrow(pl)}${signed(pl)} (${signed(plp, pct).replace("€", "")} %)</span> · ${eur.format(S.deposited)} eingezahlt`;
 
   $("holdings").innerHTML = DATA.positions.map(p => { const g = p.value - p.cost, kurs = p.kurs ?? (p.qty ? p.value / p.qty : null);
-    return `<div class="holding"><div class="holding-top"><span>${esc(p.name)}</span><span class="v num">${eur.format(p.value)}</span></div>
-      <div class="holding-sub num"><span class="${dirClass(g)}">${arrow(g)}${pct.format(Math.abs(p.pnl_pct))} %</span>${kurs ? ` · Kurs ${eur.format(kurs)}` : ""}</div></div>`; }).join("");
-
-  const cmp = [];
-  if (S.bench != null) cmp.push({ n: "vs. ETF-Sparplan", c: "--s-etf", ref: S.bench });
-  if (S.cbench != null) cmp.push({ n: "vs. Krypto halten", c: "--s-crypto", ref: S.cbench });
-  $("compare").innerHTML = cmp.map(c => { const d = S.value - c.ref; return `<div class="cmp">
-    <div class="lbl"><i class="swatch" style="background:var(${c.c})"></i>${c.n}</div>
-    <div class="val num ${dirClass(d)}">${arrow(d)}${signed(d)}</div>
-    <div class="sub num">Vergleich: ${eur.format(c.ref)}</div></div>`; }).join("");
+    return `<div class="holding"><div class="holding-top"><span>${esc(p.name)}${p.tier === "risk" ? tagHtml(p) : ""}</span><span class="v num">${eur.format(p.value)}</span></div>
+      <div class="holding-sub num"><span class="${dirClass(g)}">${arrow(g)}${pct.format(Math.abs(p.pnl_pct))} %</span>${kurs ? ` · Kurs ${kursEur(kurs)}` : ""}</div></div>`; }).join("");
 
   const ban = [];
   if (st.stopped) ban.push(`<b>Not-Aus aktiv.</b> Der Bot handelt nicht, bis du ihn wieder löst.`);
@@ -232,12 +230,15 @@ function renderStatic() {
   $("banner").innerHTML = ban.map(b => `<div class="banner">${b}</div>`).join("");
 
   // Aufteilung
-  const byCls = { etf: 0, crypto: 0 };
-  for (const p of DATA.positions) byCls[p.cls] = (byCls[p.cls] || 0) + p.value;
+  const byCls = { etf: 0, crypto: 0 }, byTier = { core: 0, alt: 0, risk: 0 };
+  for (const p of DATA.positions) {
+    byCls[p.cls] = (byCls[p.cls] || 0) + p.value;
+    if (p.tier) byTier[p.tier] += p.value;
+  }
   const total = Math.max(0.01, S.value);
   const parts = [
     { n: "ETFs", v: byCls.etf || 0, c: "--s-etf" },
-    { n: "Krypto", v: byCls.crypto || 0, c: "--s-crypto" },
+    ...Object.entries(TIERS).map(([k, t]) => ({ n: t.n, v: byTier[k], c: t.c })),
     { n: "Bargeld", v: S.cash, c: "--s-cash" },
   ];
   $("stack").innerHTML = parts.filter(p => p.v > 0.005).map(p =>
@@ -245,15 +246,16 @@ function renderStatic() {
   $("alloc").innerHTML = parts.map(p => `<div class="alloc-row"><i class="swatch" style="background:var(${p.c})"></i>
     <span class="n">${p.n}</span><span class="num">${eur.format(p.v)}</span><span class="p num">${pct.format(p.v / total * 100)} %</span></div>`).join("");
   $("alloc-hint").textContent = "Anteile am Depotwert";
-  const lim = DATA.limits.crypto_max_class_pct, cp = (byCls.crypto || 0) / total * 100;
-  $("meter").innerHTML = lim ? `<div class="lbl"><span>Krypto-Anteil <b class="num" style="color:var(--text)">${pct.format(cp)} %</b></span><span>Grenze ${pct.format(lim)} %</span></div>
-    <div class="track" role="img" aria-label="Krypto-Anteil ${pct.format(cp)} Prozent von höchstens ${pct.format(lim)} Prozent">
-    <div class="fill" style="width:${Math.min(100, cp)}%"></div><div class="limit" style="left:calc(${Math.min(100, lim)}% - 1px)"></div></div>` : "";
+  const meter = (name, wert, lim, c) => { const cp = wert / total * 100; return lim ? `<div class="meter-row"><div class="lbl"><span>${name} <b class="num" style="color:var(--text)">${pct.format(cp)} %</b></span><span>Grenze ${pct.format(lim)} %</span></div>
+    <div class="track" role="img" aria-label="${name} ${pct.format(cp)} Prozent von höchstens ${pct.format(lim)} Prozent">
+    <div class="fill" style="width:${Math.min(100, cp)}%;background:var(${c})"></div><div class="limit" style="left:calc(${Math.min(100, lim)}% - 1px)"></div></div></div>` : ""; };
+  $("meter").innerHTML = meter("Krypto-Anteil", byCls.crypto || 0, DATA.limits.crypto_max_class_pct, "--s-core")
+    + meter("Risiko-Anteil", byTier.risk, DATA.limits.risk_max_tier_pct, "--s-risk");
 
   // Positionen
   $("pos-hint").textContent = DATA.status.has_live_prices ? "Mit aktuellen Kursen bewertet" : "Zum Einstandspreis bewertet (keine aktuellen Kurse)";
   $("positions").innerHTML = DATA.positions.length || S.cash ? `<table><thead><tr><th>Wert</th><th class="r">Betrag</th><th class="r">Gewinn</th><th class="r">Anteil</th></tr></thead><tbody>` +
-    DATA.positions.map(p => { const g = p.value - p.cost; return `<tr><td>${esc(p.name)}<span class="tag">${p.cls === "etf" ? "ETF" : "Krypto"}</span></td>
+    DATA.positions.map(p => { const g = p.value - p.cost; return `<tr><td>${esc(p.name)}${tagHtml(p)}</td>
       <td class="r">${eur.format(p.value)}</td><td class="r ${dirClass(g)}">${arrow(g)}${pct.format(Math.abs(p.pnl_pct))} %<div class="muted" style="font-size:12px">${signed(g)}</div></td>
       <td class="r">${pct.format(p.value / total * 100)} %</td></tr>`; }).join("") +
     `<tr><td>Bargeld</td><td class="r">${eur.format(S.cash)}</td><td class="r muted">–</td><td class="r">${pct.format(S.cash / total * 100)} %</td></tr></tbody></table>`
@@ -282,6 +284,64 @@ function renderStatic() {
 
   // Trades
   renderTrades();
+
+  renderSparplan();
+  renderVergleich();
+}
+
+/* ---------- Tab Sparplan ---------- */
+function renderSparplan() {
+  const S = DATA.summary, sp = DATA.sparplan ?? { units: 0, pending: 0, price: null, buys: [] };
+  const wert = S.bench ?? S.deposited, g = wert - S.deposited;
+  $("sp-value").textContent = eur.format(wert);
+  $("sp-delta").innerHTML = `<span class="${dirClass(g)}">${arrow(g)}${signed(g)} (${pctS(rendite(wert, S.deposited))} %)</span> · ${eur.format(S.deposited)} eingezahlt`;
+  $("sp-name").textContent = sp.name ?? "";
+  const einsatz = sp.buys.reduce((n, b) => n + b.amount, 0);
+  $("k-sp-deposited").textContent = eur.format(S.deposited);
+  $("k-sp-deposited-sub").textContent = sp.pending > 0 ? `${eur.format(sp.pending)} warten auf den nächsten Lauf` : "dieselben Einzahlungen wie beim Bot";
+  $("k-sp-units").textContent = stueck.format(sp.units);
+  $("k-sp-avg").textContent = sp.units ? eur.format(einsatz / sp.units) : "–";
+  $("k-sp-price").textContent = sp.price ? eur.format(sp.price) : "–";
+  $("sp-buys").innerHTML = sp.buys.length ? `<table><thead><tr><th>Datum</th><th class="r">Betrag</th><th class="r">Kurs</th><th class="r">Anteile</th></tr></thead><tbody>` +
+    sp.buys.map(b => `<tr><td>${dShort.format(toDate(b.t))}</td><td class="r">${eur.format(b.amount)}</td><td class="r">${eur.format(b.price)}</td><td class="r">${stueck.format(b.units)}</td></tr>`).join("") +
+    `</tbody></table>` : `<div class="empty">Noch keine Käufe. Der erste kommt mit dem ersten Lauf.</div>`;
+}
+
+/* ---------- Tab Vergleich ---------- */
+// Größter Rückgang vom Höchststand, gemessen an Wert je eingezahltem Euro: Einzahlungen zählen nicht als Gewinn.
+function maxRueckgang(key) {
+  let peak = 0, dd = null;
+  for (const r of DATA.runs) {
+    if (r[key] == null || !r.d) continue;
+    const q = r[key] / r.d;
+    peak = Math.max(peak, q);
+    dd = Math.max(dd ?? 0, (1 - q / peak) * 100);
+  }
+  return dd;
+}
+
+function renderVergleich() {
+  const S = DATA.summary, b = S.bench;
+  if (b == null) {
+    $("vs-title").textContent = "Noch kein Vergleich";
+    $("vs-big").textContent = "–";
+    $("vs-sub").textContent = "Der Sparplan kauft im ersten Lauf.";
+  } else {
+    const d = S.value - b, pp = rendite(S.value, S.deposited) - rendite(b, S.deposited);
+    const gleich = Math.abs(d) < 0.005;
+    $("vs-title").textContent = gleich ? "Gleichauf" : d > 0 ? "Der Bot liegt vorne" : "Der Sparplan liegt vorne";
+    $("vs-big").textContent = eur.format(Math.abs(d));
+    $("vs-sub").textContent = `${pct.format(Math.abs(pp))} Prozentpunkte · Bot ${eur.format(S.value)} · Sparplan ${eur.format(b)}`;
+  }
+  const dd = k => { const v = maxRueckgang(k); return v == null ? "–" : `${v > 0 ? "−" : ""}${pct.format(v)} %`; };
+  const zeile = (n, x, y) => `<tr><td>${n}</td><td class="r">${x}</td><td class="r">${y}</td></tr>`;
+  $("vs-table").innerHTML = `<table><thead><tr><th></th>
+    <th class="r"><i class="swatch" style="background:var(--s-bot)"></i> Bot</th>
+    <th class="r"><i class="swatch" style="background:var(--s-etf)"></i> Sparplan</th></tr></thead><tbody>` +
+    zeile("Wert", eur.format(S.value), b == null ? "–" : eur.format(b)) +
+    zeile("Rendite", `${pctS(rendite(S.value, S.deposited))} %`, b == null ? "–" : `${pctS(rendite(b, S.deposited))} %`) +
+    zeile("Gebühren", eur.format(S.fees_total), `${eur.format(0)}<div class="muted" style="font-size:12px">nur Spread</div>`) +
+    zeile("Größter Rückgang", dd("v"), dd("b")) + `</tbody></table>`;
 }
 
 function renderTrades() {
@@ -292,13 +352,46 @@ function renderTrades() {
       <div class="when">${dTime.format(toDate(t.t))}</div>
       <div class="what"><span class="side">${t.side === "buy" ? "KAUF" : "VERKAUF"}</span>${esc(t.name)}</div>
       <div><div class="amt">${t.side === "buy" ? "−" : "+"}${eur.format(t.amount)}</div><div class="fee">Gebühr ${eur.format(t.fee)}</div></div>
-      ${t.qty != null && t.price != null ? `<div class="how num">${stueck.format(t.qty)} Stück zu je ${eur.format(t.price)} <span class="muted">inkl. Spread</span></div>` : ""}
+      ${t.qty != null && t.price != null ? `<div class="how num">${stueck.format(t.qty)} Stück zu je ${kursEur(t.price)} <span class="muted">inkl. Spread</span></div>` : ""}
       <div class="why">${esc(t.reason)}${t.conf != null ? ` <span class="muted">· Sicherheit ${Math.round(t.conf * 100)} %</span>` : ""}</div>
     </div>`).join("") : `<div class="empty">Noch keine Trades.</div>`) + more;
   $("more")?.addEventListener("click", () => { showAllTrades = !showAllTrades; renderTrades(); });
 }
 
-function renderCharts() { if (DATA) { lineChart(); barChart(); } }
+function renderCharts() {
+  if (!DATA) return;
+  if (tab === "bot") lineChart({ id: "chart-bot", series: [BOT], aria: "Wertentwicklung des Bots" });
+  if (tab === "sparplan") lineChart({ id: "chart-sparplan", series: [SPARPLAN], aria: "Wertentwicklung des Sparplans" });
+  if (tab === "vergleich") {
+    lineChart({ id: "chart-vergleich", series: [BOT, SPARPLAN], P: unit === "pct", legend: "legend-vergleich", hint: "hint-vergleich", table: "table-vergleich", aria: "Wertentwicklung von Bot und Sparplan" });
+    barChart();
+  }
+}
+
+/* ---------- Tabs ---------- */
+const TABS = ["bot", "sparplan", "vergleich"];
+let tab = "bot";
+try { tab = localStorage.getItem("tb-tab") || "bot"; } catch (e) {}
+const ausHash = () => location.hash.slice(1);
+if (TABS.includes(ausHash())) tab = ausHash();
+if (!TABS.includes(tab)) tab = "bot";
+
+function zeigeTab(name, nachOben = true) {
+  tab = name;
+  try { localStorage.setItem("tb-tab", name); } catch (e) {}
+  if (ausHash() !== name) history.replaceState(null, "", "#" + name);
+  for (const t of TABS) {
+    $("tab-" + t).hidden = t !== name;
+    const b = $("tabbtn-" + t);
+    b.setAttribute("aria-selected", String(t === name));
+    b.tabIndex = t === name ? 0 : -1;
+  }
+  if (nachOben) scrollTo(0, 0);
+  renderCharts();
+}
+for (const t of TABS) $("tabbtn-" + t).addEventListener("click", () => zeigeTab(t));
+addEventListener("hashchange", () => { if (TABS.includes(ausHash())) zeigeTab(ausHash()); });
+zeigeTab(tab, false);
 
 $("unit").querySelectorAll("button").forEach(b => {
   b.setAttribute("aria-pressed", String(b.dataset.u === unit));
@@ -306,17 +399,18 @@ $("unit").querySelectorAll("button").forEach(b => {
     unit = b.dataset.u;
     try { localStorage.setItem("tb-unit", unit); } catch (e) {}
     $("unit").querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
-    lineChart();
+    renderCharts();
   });
 });
 
 /* ---------- Steuerung ---------- */
-$("range").querySelectorAll("button").forEach(b => {
+const rangeButtons = document.querySelectorAll(".range-seg button");
+rangeButtons.forEach(b => {
   b.setAttribute("aria-pressed", String(Number(b.dataset.r) === range));
   b.addEventListener("click", () => {
     range = Number(b.dataset.r);
     try { localStorage.setItem("tb-range", range); } catch (e) {}
-    $("range").querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+    rangeButtons.forEach(x => x.setAttribute("aria-pressed", String(Number(x.dataset.r) === range)));
     renderCharts();
   });
 });
@@ -328,7 +422,13 @@ $("theme").addEventListener("click", () => {
   renderCharts();
 });
 matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", renderCharts);
-let rt; new ResizeObserver(() => { clearTimeout(rt); rt = setTimeout(renderCharts, 60); }).observe($("chart1"));
+// Nur auf neue Breite reagieren: Beim Tabwechsel ändert sich die Höhe, das braucht kein zweites Zeichnen.
+let rt, breite = 0;
+new ResizeObserver(([e]) => {
+  if (e.contentRect.width === breite) return;
+  breite = e.contentRect.width;
+  clearTimeout(rt); rt = setTimeout(renderCharts, 60);
+}).observe(document.querySelector("main"));
 
 export function zeigen(daten) {
   DATA = daten;

@@ -2,7 +2,7 @@
 // Strategie „erst Netz, dann Zwischenspeicher“: Neue Versionen kommen sofort an.
 
 // Auf dieser Domain liegt auch Wir zwei. Darum nur Caches mit dem Präfix „tb-“ anfassen.
-const SPEICHER = 'tb-v4';
+const SPEICHER = 'tb-v5';
 const GRUNDGERUEST = [
   './',
   './index.html',
@@ -41,18 +41,19 @@ self.addEventListener('push', (ev) => {
     badge: 'icons/icon-192.png',
     tag: daten.art || 'lauf',
     renotify: true,
-    data: { ziel: daten.ziel || './' },
+    data: { ziel: daten.ziel || './#bot' },
   }));
 });
 
 self.addEventListener('notificationclick', (ev) => {
   ev.notification.close();
-  const ziel = new URL(ev.notification.data?.ziel || './', self.registration.scope).href;
+  const ziel = new URL(ev.notification.data?.ziel || './#bot', self.registration.scope).href;
   ev.waitUntil((async () => {
     const fenster = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     for (const f of fenster) {
       if ('focus' in f) {
         await f.focus();
+        f.postMessage({ ziel });
         return;
       }
     }

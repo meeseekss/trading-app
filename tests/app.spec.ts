@@ -4,17 +4,27 @@ import { readFileSync } from 'node:fs';
 
 const ZEIT = '2026-11-05T09:15:05+00:00';
 const RUNS = [
-  { zeit: '2026-11-06T09:15:05+00:00', portfolio_value_eur: 101.5, cash_eur: 49.01, deposited_eur: 100, benchmark_value_eur: 100.2, crypto_benchmark_value_eur: 99.1, orders_proposed: 2, orders_executed: 0, rejections: ['Krypto-Grenze überschritten'], market_view: 'Ruhiger Markt.', api_cost_usd_total: 0.002 },
-  { zeit: ZEIT, portfolio_value_eur: 98.96, cash_eur: 49.01, deposited_eur: 100, benchmark_value_eur: 99.9, crypto_benchmark_value_eur: 99.9, orders_proposed: 1, orders_executed: 1, rejections: [], market_view: 'Erster Kauf.', api_cost_usd_total: 0.001 },
+  { zeit: '2026-11-07T09:15:05+00:00', portfolio_value_eur: 156, cash_eur: 74.01, deposited_eur: 150, benchmark_value_eur: 153, orders_proposed: 2, orders_executed: 0, rejections: ['Krypto wäre über 35 %'], market_view: 'Ruhiger Markt.', api_cost_usd_total: 0.002 },
+  { zeit: '2026-11-06T09:15:05+00:00', portfolio_value_eur: 141, cash_eur: 74.01, deposited_eur: 150, benchmark_value_eur: 147, orders_proposed: 0, orders_executed: 0, rejections: [], market_view: 'Schwach.', api_cost_usd_total: 0.0015 },
+  { zeit: ZEIT, portfolio_value_eur: 150, cash_eur: 74.01, deposited_eur: 150, benchmark_value_eur: 149.85, orders_proposed: 1, orders_executed: 1, rejections: [], market_view: 'Erster Kauf.', api_cost_usd_total: 0.001 },
 ];
-const TRADES = [{ zeit: ZEIT, nr: 0, symbol: 'EUNL.DE', name: 'iShares Core MSCI World (Xetra)', asset_class: 'etf', side: 'buy', qty: 0.38, exec_price_eur: 130.6, amount_eur: 50, fee_eur: 0.99, confidence: 0.8, reason: 'Kern' }];
-const POSITIONS = [{ symbol: 'EUNL.DE', name: 'iShares Core MSCI World (Xetra)', asset_class: 'etf', qty: 0.38, value_eur: 52.49, cost_eur: 50, pnl_pct: 4.98, live: true }];
+const TRADES = [{ zeit: ZEIT, nr: 0, symbol: 'EUNL.DE', name: 'iShares Core MSCI World (Xetra)', asset_class: 'etf', side: 'buy', qty: 0.38, exec_price_eur: 130.6, amount_eur: 75, fee_eur: 0.99, confidence: 0.8, reason: 'Kern' }];
+const POSITIONS = [{ symbol: 'EUNL.DE', name: 'iShares Core MSCI World (Xetra)', asset_class: 'etf', tier: null, qty: 0.38, value_eur: 52.49, cost_eur: 50, pnl_pct: 4.98, live: true }];
+const KRYPTO = [
+  { symbol: 'XBTEUR', name: 'Bitcoin', asset_class: 'crypto', tier: 'core', qty: 0.0002, value_eur: 18, cost_eur: 17, pnl_pct: 5.88, live: true },
+  { symbol: 'SOLEUR', name: 'Solana', asset_class: 'crypto', tier: 'alt', qty: 0.1, value_eur: 8, cost_eur: 8, pnl_pct: 0, live: true },
+  { symbol: 'PEPEEUR', name: 'Pepe', asset_class: 'crypto', tier: 'risk', qty: 1750000, value_eur: 7.5, cost_eur: 7.5, pnl_pct: 0, live: true },
+];
+const KAEUFE = [
+  { zeit: '2026-12-01T09:15:05+00:00', symbol: 'EUNL.DE', betrag_eur: 150, kurs_eur: 150, anteile: 1 },
+  { zeit: ZEIT, symbol: 'EUNL.DE', betrag_eur: 150, kurs_eur: 100, anteile: 1.5 },
+];
 const status = (extra = {}) => ({
   id: 1, not_aus: false, not_aus_seit: null, pause: false, grund: '', letzter_lauf: RUNS[0].zeit,
   kennzahlen: {
-    summary: { value: 101.5, cash: 49.01, deposited: 100, bench: 100.2, cbench: 99.1, fees_total: 0.99, api_usd: 0.002, trades_total: 1, trades_month: 1, runs_total: 2 },
-    limits: { crypto_max_class_pct: 35 }, mode: 'paper', has_live_prices: true, stop_datei: false, generated_at: RUNS[0].zeit,
-    benchmark: { symbol: 'EUNL.DE', units: 0.75, pending: 0 }, crypto_benchmark: { units: { XBTEUR: 0.0005, ETHEUR: 0.01 }, pending: 0 },
+    summary: { value: 156, cash: 103.51, deposited: 150, bench: 153, fees_total: 0.99, api_usd: 0.002, trades_total: 1, trades_month: 1, runs_total: 3 },
+    limits: { crypto_max_class_pct: 35, risk_max_tier_pct: 10 }, mode: 'paper', has_live_prices: true, stop_datei: false, generated_at: RUNS[0].zeit,
+    benchmark: { symbol: 'EUNL.DE', name: 'iShares Core MSCI World (Xetra)', units: 2.5, pending: 0, price: 122 },
   }, ...extra,
 });
 
@@ -25,7 +35,7 @@ const SITZUNG = {
 };
 
 type Kurse = { code?: number; body?: object };
-async function supabase(page: Page, opt: { status?: object[]; kurse?: Kurse; positions?: object[] } = {}) {
+async function supabase(page: Page, opt: { status?: object[]; kurse?: Kurse; positions?: object[]; kaeufe?: object[]; runs?: object[] } = {}) {
   const stand = { status: opt.status ?? [status()], patches: [] as object[], registriert: 0, schreibzugriffe: 0, kursAbrufe: 0 };
   await page.route('https://mhueskuqqecqxawtzizr.supabase.co/**', async (route) => {
     const req = route.request(), url = new URL(req.url()), teil = url.pathname;
@@ -42,9 +52,10 @@ async function supabase(page: Page, opt: { status?: object[]; kurse?: Kurse; pos
     }
     if (teil.endsWith('/auth/v1/signup')) { stand.registriert += 1; return json(SITZUNG); }
     if (teil.endsWith('/auth/v1/logout')) return json({});
-    if (teil.endsWith('/rest/v1/runs')) return json(RUNS);
+    if (teil.endsWith('/rest/v1/runs')) return json(opt.runs ?? RUNS);
     if (teil.endsWith('/rest/v1/trades')) return json(TRADES);
     if (teil.endsWith('/rest/v1/positions')) return json(opt.positions ?? POSITIONS);
+    if (teil.endsWith('/rest/v1/sparplan_kaeufe')) return json(opt.kaeufe ?? KAEUFE);
     if (teil.endsWith('/rest/v1/status')) {
       if (req.method() === 'PATCH') {
         const neu = req.postDataJSON();
@@ -82,27 +93,194 @@ test('falsches Passwort zeigt einen verständlichen Fehler', async ({ page }) =>
   await expect(page.locator('#login-err')).toHaveText('E-Mail oder Passwort stimmt nicht.');
 });
 
-test('nach der Anmeldung zeigt die App alles wie das Dashboard', async ({ page }) => {
-  await supabase(page);
+test('Tab Bot zeigt Depot, Kurve, Aufteilung, Positionen, Einschätzung, Kennzahlen, Trades und Steuerung', async ({ page }) => {
+  await supabase(page, { positions: [...POSITIONS, ...KRYPTO] });
   await anmelden(page);
-  await expect(page.locator('#value')).toHaveText(/101,50/);
-  await expect(page.locator('#compare .cmp')).toHaveCount(2);
-  await expect(page.locator('#chart1 svg')).toBeVisible();
-  await expect(page.locator('#chart2 svg')).toBeVisible();
+  await expect(page.locator('#value')).toHaveText(/156,00/);
+  await expect(page.locator('#chart-bot svg')).toBeVisible();
+  await expect(page.locator('#alloc')).toContainText('Krypto Basis');
+  await expect(page.locator('#alloc')).toContainText('Krypto Altcoins');
+  await expect(page.locator('#alloc')).toContainText('Krypto Risiko');
+  await expect(page.locator('#alloc')).toContainText('Bargeld');
   await expect(page.locator('#meter')).toContainText('Grenze 35,0 %');
+  await expect(page.locator('#meter')).toContainText('Grenze 10,0 %');
   await expect(page.locator('#positions')).toContainText('MSCI World');
   await expect(page.locator('#view')).toHaveText('Ruhiger Markt.');
-  await expect(page.locator('#rej')).toContainText('Krypto-Grenze');
-  await expect(page.locator('#k-runs')).toHaveText('2');
+  await expect(page.locator('#rej')).toContainText('Krypto wäre über 35 %');
+  await expect(page.locator('#k-runs')).toHaveText('3');
   await expect(page.locator('#trades')).toContainText('KAUF');
-  await page.click('#unit button[data-u="eur"]');
-  await expect(page.locator('#hint1')).toContainText('Euro');
+  await expect(page.locator('#notaus-btn')).toBeVisible();
+  await expect(page.locator('#push-btn')).toBeVisible();
+});
+
+test('Risiko-Coins tragen das Etikett, winzige Kurse bleiben lesbar', async ({ page }) => {
+  await supabase(page, { positions: KRYPTO });
+  await anmelden(page);
+  const zeile = page.locator('#positions tr', { hasText: 'Pepe' });
+  await expect(zeile.locator('.tag.risk')).toHaveText('Risiko');
+  await expect(page.locator('#positions tr', { hasText: 'Solana' }).locator('.tag')).toHaveText('Altcoin');
+  await expect(page.locator('#positions tr', { hasText: 'Bitcoin' }).locator('.tag')).toHaveText('Basis');
+  await expect(page.locator('#holdings .holding', { hasText: 'Pepe' })).toContainText('Kurs 0,000004286 €');
 });
 
 test('die älteste Zeile steht im Diagramm links: Läufe werden umgedreht', async ({ page }) => {
   await supabase(page);
   await anmelden(page);
   await expect(page.locator('#k-runs-sub')).toContainText('seit 5. Nov');
+});
+
+test('Tab Sparplan zeigt Wert, Rendite, Anteile, Kurse, Kurve und alle Käufe', async ({ page }) => {
+  await supabase(page);
+  await anmelden(page);
+  await page.click('#tabbtn-sparplan');
+  await expect(page.locator('#sp-value')).toHaveText(/153,00/);
+  await expect(page.locator('#sp-delta')).toContainText('+2,0');
+  await expect(page.locator('#k-sp-deposited')).toHaveText(/150,00/);
+  await expect(page.locator('#k-sp-units')).toHaveText('2,5');
+  await expect(page.locator('#k-sp-avg')).toHaveText(/120,00/); // 300 € für 2,5 Anteile
+  await expect(page.locator('#k-sp-price')).toHaveText(/122,00/);
+  await expect(page.locator('#chart-sparplan svg')).toBeVisible();
+  const zeilen = page.locator('#sp-buys tbody tr');
+  await expect(zeilen).toHaveCount(2);
+  await expect(zeilen.first()).toContainText('1. Dez');
+  await expect(zeilen.nth(1)).toContainText('100,00');
+  await expect(zeilen.nth(1)).toContainText('1,5');
+});
+
+test('Tab Vergleich: wer vorne liegt, mit Euro und Prozentpunkten', async ({ page }) => {
+  await supabase(page);
+  await anmelden(page);
+  await page.click('#tabbtn-vergleich');
+  await expect(page.locator('#vs-title')).toHaveText('Der Bot liegt vorne');
+  await expect(page.locator('#vs-big')).toHaveText(/3,00/);
+  await expect(page.locator('#vs-sub')).toContainText('2,0 Prozentpunkte');
+  await expect(page.locator('#chart-vergleich svg')).toBeVisible();
+  await expect(page.locator('#chart-lead svg')).toBeVisible();
+  await expect(page.locator('#legend-vergleich')).toContainText('Sparplan');
+  await page.click('#unit button[data-u="eur"]');
+  await expect(page.locator('#hint-vergleich')).toContainText('Euro');
+  await expect(page.locator('#legend-vergleich')).toContainText('Eingezahlt');
+});
+
+test('Vergleich nennt den Sparplan, wenn er vorne liegt, und Kennzahlen nebeneinander', async ({ page }) => {
+  const s = status();
+  await supabase(page, { status: [{ ...s, kennzahlen: { ...s.kennzahlen, summary: { ...s.kennzahlen.summary, value: 150, bench: 153 } } }] });
+  await anmelden(page);
+  await page.click('#tabbtn-vergleich');
+  await expect(page.locator('#vs-title')).toHaveText('Der Sparplan liegt vorne');
+  const zeile = (n: string) => page.locator('#vs-table tr', { hasText: n });
+  await expect(zeile('Wert')).toContainText('150,00');
+  await expect(zeile('Wert')).toContainText('153,00');
+  await expect(zeile('Rendite')).toContainText('+2,0 %');
+  await expect(zeile('Gebühren')).toContainText('0,99');
+  await expect(zeile('Gebühren')).toContainText('nur Spread');
+  // 150 → 141 sind 6,0 % beim Bot, 149,85 → 147 sind 1,9 % beim Sparplan
+  await expect(zeile('Größter Rückgang')).toContainText('−6,0 %');
+  await expect(zeile('Größter Rückgang')).toContainText('−1,9 %');
+});
+
+test('vor dem ersten Lauf starten beide gleichauf, ohne Fehler', async ({ page }) => {
+  const fehler: string[] = [];
+  page.on('pageerror', (e) => fehler.push(e.message));
+  const s = status({ letzter_lauf: null });
+  const leer = { ...s, kennzahlen: { ...s.kennzahlen, summary: { value: 150, cash: 150, deposited: 150, bench: 150, fees_total: 0, api_usd: 0, trades_total: 0, trades_month: 0, runs_total: 0 }, benchmark: { symbol: 'EUNL.DE', units: 0, pending: 150, price: null } } };
+  await supabase(page, { status: [leer], kaeufe: [], positions: [], runs: [] });
+  await anmelden(page);
+  await expect(page.locator('#value')).toHaveText(/150,00/);
+  await expect(page.locator('#chart-bot')).toContainText('Noch keine Läufe');
+  await page.click('#tabbtn-sparplan');
+  await expect(page.locator('#sp-value')).toHaveText(/150,00/);
+  await expect(page.locator('#k-sp-deposited-sub')).toContainText('warten auf den nächsten Lauf');
+  await expect(page.locator('#sp-buys')).toContainText('Noch keine Käufe');
+  await page.click('#tabbtn-vergleich');
+  await expect(page.locator('#vs-title')).toHaveText('Gleichauf');
+  expect(fehler).toEqual([]);
+});
+
+test('Krypto halten gibt es nirgends mehr', async ({ page }) => {
+  await supabase(page);
+  await anmelden(page);
+  for (const tab of ['bot', 'sparplan', 'vergleich']) {
+    await page.click(`#tabbtn-${tab}`);
+    await expect(page.locator('#app')).not.toContainText('Krypto halten');
+  }
+  expect(readFileSync('js/app.js', 'utf-8')).not.toMatch(/crypto_benchmark|cbench/);
+  expect(readFileSync('js/dashboard.js', 'utf-8')).not.toMatch(/cbench|Krypto halten/);
+});
+
+test('Tab-Leiste: wechselt, merkt sich die Wahl und ändert die Adresse', async ({ page }) => {
+  await supabase(page);
+  await anmelden(page);
+  await expect(page.locator('#tabbtn-bot')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#tab-bot')).toBeVisible();
+  await expect(page.locator('#tab-sparplan')).toBeHidden();
+
+  await page.click('#tabbtn-vergleich');
+  await expect(page.locator('#tab-vergleich')).toBeVisible();
+  await expect(page.locator('#tab-bot')).toBeHidden();
+  await expect(page.locator('#tabbtn-vergleich')).toHaveAttribute('aria-selected', 'true');
+  expect(new URL(page.url()).hash).toBe('#vergleich');
+  expect(await page.evaluate(() => localStorage.getItem('tb-tab'))).toBe('vergleich');
+
+  await page.goto('/');
+  await expect(page.locator('#tab-vergleich')).toBeVisible();
+});
+
+for (const name of ['bot', 'sparplan', 'vergleich']) {
+  test(`#${name} ist direkt aufrufbar und schlägt die gemerkte Wahl`, async ({ page }) => {
+    await supabase(page);
+    await anmelden(page);
+    await page.click(name === 'bot' ? '#tabbtn-sparplan' : '#tabbtn-bot');
+    await page.goto(`/#${name}`);
+    await page.reload();
+    await expect(page.locator(`#tab-${name}`)).toBeVisible();
+    await expect(page.locator(`#tabbtn-${name}`)).toHaveAttribute('aria-selected', 'true');
+  });
+}
+
+test('Wechsel der Adresse wechselt den Tab, unbekannte Adresse bleibt beim Bot', async ({ page }) => {
+  await supabase(page);
+  await anmelden(page);
+  await page.evaluate(() => { location.hash = '#sparplan'; });
+  await expect(page.locator('#tab-sparplan')).toBeVisible();
+  await page.evaluate(() => localStorage.removeItem('tb-tab'));
+  await page.goto('/#gibtsnicht');
+  await page.reload();
+  await expect(page.locator('#tab-bot')).toBeVisible();
+});
+
+test('Zeitraum gilt in allen Tabs', async ({ page }) => {
+  await supabase(page);
+  await anmelden(page);
+  await page.click('#range-bot button[data-r="30"]');
+  await page.click('#tabbtn-sparplan');
+  await expect(page.locator('#range-sparplan button[data-r="30"]')).toHaveAttribute('aria-pressed', 'true');
+  await page.click('#tabbtn-vergleich');
+  await expect(page.locator('#range-vergleich button[data-r="0"]')).toHaveAttribute('aria-pressed', 'false');
+});
+
+test('Tab-Leiste bleibt unten sichtbar, groß genug und lässt Platz für die Safe-Area', async ({ page }) => {
+  await supabase(page);
+  await anmelden(page);
+  const leiste = page.locator('.tabbar');
+  await page.evaluate(() => scrollTo(0, document.body.scrollHeight));
+  const box = await leiste.boundingBox();
+  const hoehe = page.viewportSize()!.height;
+  expect(Math.round(box!.y + box!.height)).toBe(hoehe);
+  for (const t of ['bot', 'sparplan', 'vergleich']) {
+    const b = await page.locator(`#tabbtn-${t}`).boundingBox();
+    expect(b!.height).toBeGreaterThanOrEqual(44);
+  }
+  expect(readFileSync('app.css', 'utf-8')).toMatch(/\.tabbar[^}]*env\(safe-area-inset-bottom\)/);
+  // Der letzte Inhalt verschwindet nicht hinter der Leiste.
+  const fuss = await page.locator('footer').boundingBox();
+  expect(fuss!.y + fuss!.height).toBeLessThanOrEqual(box!.y);
+});
+
+test('Mitteilungen öffnen den Tab Bot', () => {
+  const sw = readFileSync('sw.js', 'utf-8');
+  expect(sw).toContain("'./#bot'");
+  expect(sw).toContain('postMessage({ ziel })');
 });
 
 test('Konto ohne Zugriffsregel bekommt einen Hinweis statt leerer Seite', async ({ page }) => {
@@ -153,27 +331,27 @@ test('STOP-Datei des Bots zeigt ebenfalls Not-Aus, Pause mit Grund', async ({ pa
   await expect(page.locator('#banner')).toContainText('Drawdown 25 %');
 });
 
-const ALLE_KURSE = { preise: { 'EUNL.DE': 140, XBTEUR: 90000, ETHEUR: 3000 }, fehlend: [], zeit: '2026-11-06T13:32:00Z' };
+const ALLE_KURSE = { preise: { 'EUNL.DE': 140, XBTEUR: 90000, ETHEUR: 3000 }, fehlend: [], zeit: '2026-11-07T13:32:00Z' };
 
 test('Jetzt aktualisieren bewertet das Depot neu und speichert nichts', async ({ page }) => {
   const stand = await supabase(page, { kurse: { body: ALLE_KURSE } });
   await anmelden(page);
-  await expect(page.locator('#value')).toHaveText(/101,50/);
+  await expect(page.locator('#value')).toHaveText(/156,00/);
   await expect(page.locator('#live-text')).toHaveText('');
   expect(stand.kursAbrufe).toBe(0); // nur auf Knopfdruck
 
   await page.click('#live-btn');
-  // 49,01 € Bargeld + 0,38 Stück × 140 € = 102,21 €
-  await expect(page.locator('#value')).toHaveText(/102,21/);
-  await expect(page.locator('#delta')).toContainText('2,21');
+  // 103,51 € Bargeld + 0,38 Stück × 140 € = 156,71 €
+  await expect(page.locator('#value')).toHaveText(/156,71/);
+  await expect(page.locator('#delta')).toContainText('6,71');
   await expect(page.locator('#positions')).toContainText('53,20');
-  await expect(page.locator('#compare')).toContainText('105,00'); // 0,75 × 140 €
-  await expect(page.locator('#compare')).toContainText('75,00'); // 45 € + 30 €
+  await expect(page.locator('#sp-value')).toHaveText(/350,00/); // 2,5 Anteile × 140 €
+  await expect(page.locator('#k-sp-price')).toHaveText(/140,00/);
   await expect(page.locator('#live-text')).toContainText('nicht gespeichert');
   await expect(page.locator('#live-text')).not.toContainText('Ohne aktuellen Kurs');
   expect(stand.schreibzugriffe).toBe(0);
   // Die Kurven zeigen weiter nur die Läufe.
-  await expect(page.locator('#k-runs')).toHaveText('2');
+  await expect(page.locator('#k-runs')).toHaveText('3');
   // Pause, damit Yahoo und Kraken nicht dauernd gefragt werden
   await expect(page.locator('#live-btn')).toBeDisabled();
 });
@@ -184,8 +362,7 @@ test('fehlender Kurs: letzter Wert bleibt und die App sagt es', async ({ page })
   await page.click('#live-btn');
   await expect(page.locator('#live-text')).toContainText('Ohne aktuellen Kurs: iShares Core MSCI World');
   await expect(page.locator('#positions')).toContainText('52,49');
-  await expect(page.locator('#compare')).toContainText('75,00'); // Krypto-Vergleich ist trotzdem aktuell
-  await expect(page.locator('#compare')).toContainText('100,20'); // ETF-Vergleich aus dem letzten Lauf
+  await expect(page.locator('#sp-value')).toHaveText(/153,00/); // Sparplan aus dem letzten Lauf
 });
 
 test('Fehler beim Abruf lässt den Stand vom letzten Lauf stehen', async ({ page }) => {
@@ -193,24 +370,24 @@ test('Fehler beim Abruf lässt den Stand vom letzten Lauf stehen', async ({ page
   await anmelden(page);
   await page.click('#live-btn');
   await expect(page.locator('#live-text')).toContainText('gerade nicht abrufbar');
-  await expect(page.locator('#value')).toHaveText(/101,50/);
+  await expect(page.locator('#value')).toHaveText(/156,00/);
 });
 
 test('Live-Stand bleibt beim Zurückkehren, ein neuerer Lauf ersetzt ihn', async ({ page }) => {
   const stand = await supabase(page, { kurse: { body: ALLE_KURSE } });
   await anmelden(page);
   await page.click('#live-btn');
-  await expect(page.locator('#value')).toHaveText(/102,21/);
+  await expect(page.locator('#value')).toHaveText(/156,71/);
   const zurueck = () => page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
 
   await zurueck();
   await page.waitForTimeout(200);
-  await expect(page.locator('#value')).toHaveText(/102,21/);
+  await expect(page.locator('#value')).toHaveText(/156,71/);
 
-  stand.status = [status({ letzter_lauf: '2026-11-07T09:15:05+00:00' })];
+  stand.status = [status({ letzter_lauf: '2026-11-08T09:15:05+00:00' })];
   await zurueck();
   await expect(page.locator('#live-text')).toHaveText('');
-  await expect(page.locator('#value')).toHaveText(/101,50/);
+  await expect(page.locator('#value')).toHaveText(/156,00/);
 });
 
 test('Trades zeigen Stückzahl und Ausführungskurs', async ({ page }) => {
@@ -253,8 +430,12 @@ test('Abmelden führt zurück zum Formular', async ({ page }) => {
 test('passt aufs iPhone: kein seitliches Scrollen, Schaltflächen groß genug', async ({ page }) => {
   await supabase(page);
   await anmelden(page);
-  const breite = await page.evaluate(() => [document.documentElement.scrollWidth, innerWidth]);
-  expect(breite[0]).toBeLessThanOrEqual(breite[1]);
+  for (const t of ['bot', 'sparplan', 'vergleich']) {
+    await page.click(`#tabbtn-${t}`);
+    const breite = await page.evaluate(() => [document.documentElement.scrollWidth, innerWidth]);
+    expect(breite[0]).toBeLessThanOrEqual(breite[1]);
+  }
+  await page.click('#tabbtn-bot');
   for (const id of ['#notaus-btn', '#push-btn', '#live-btn']) {
     const box = await page.locator(id).boundingBox();
     expect(box!.height).toBeGreaterThanOrEqual(44);
@@ -264,8 +445,9 @@ test('passt aufs iPhone: kein seitliches Scrollen, Schaltflächen groß genug', 
 test('alles im Browser trägt das Präfix tb-', async ({ page }) => {
   await supabase(page);
   await anmelden(page);
+  await page.click('#tabbtn-vergleich');
   await page.click('#unit button[data-u="eur"]');
-  await page.click('#range button[data-r="30"]');
+  await page.click('#range-vergleich button[data-r="30"]');
   const schluessel = await page.evaluate(() => Object.keys(localStorage));
   expect(schluessel.length).toBeGreaterThan(0);
   for (const k of schluessel) expect(k).toMatch(/^tb-/);
@@ -277,7 +459,9 @@ test('keine Verstöße gegen die Sicherheitsregeln (CSP)', async ({ page }) => {
   page.on('pageerror', (e) => fehler.push(e.message));
   await supabase(page);
   await anmelden(page);
-  await expect(page.locator('#chart1 svg')).toBeVisible();
+  await expect(page.locator('#chart-bot svg')).toBeVisible();
+  await page.click('#tabbtn-vergleich');
+  await expect(page.locator('#chart-vergleich svg')).toBeVisible();
   expect(fehler).toEqual([]);
 });
 

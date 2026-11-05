@@ -21,6 +21,7 @@
   <script type="module" src="js/app.js"></script>
 </head>
 <body>
+<!-- nur-app -->
 <div class="center" id="login" hidden>
   <form class="card login" id="login-form">
     <h1>Trading Bot</h1>
@@ -44,6 +45,7 @@
   </div>
 </div>
 
+<!-- /nur-app -->
 <div id="app" hidden>
 <header class="top"><div class="wrap">
   <div class="brand">Trading Bot</div>
@@ -55,58 +57,32 @@
 </div></header>
 
 <main class="wrap">
+<div id="tab-bot" role="tabpanel" aria-labelledby="tabbtn-bot">
   <section class="hero">
     <div>
       <div class="eyebrow">Depotwert</div>
       <div class="big num" id="value">–</div>
       <div class="delta num" id="delta"></div>
       <div class="holdings" id="holdings"></div>
+      <!-- nur-app -->
       <div class="live">
         <button class="btn" id="live-btn" type="button">Jetzt aktualisieren</button>
         <div class="s" id="live-text" role="status"></div>
       </div>
+      <!-- /nur-app -->
     </div>
-    <div class="compare" id="compare"></div>
   </section>
   <div id="banner"></div>
-
-  <section class="card controls">
-    <div class="control">
-      <div class="txt"><div class="t">Not-Aus</div><div class="s" id="notaus-text"></div></div>
-      <button class="btn danger" id="notaus-btn" type="button"></button>
-    </div>
-    <div class="control">
-      <div class="txt"><div class="t">Mitteilungen</div><div class="s" id="push-text"></div></div>
-      <button class="btn" id="push-btn" type="button"></button>
-    </div>
-  </section>
-
-  <div class="toolbar">
-    <div class="title">Entwicklung</div>
-    <div class="seg" role="group" aria-label="Zeitraum" id="range">
-      <button data-r="7">1W</button><button data-r="30">1M</button><button data-r="90">3M</button><button data-r="0" aria-pressed="true">Alles</button>
-    </div>
-  </div>
 
   <div class="grid">
     <section class="card span-12">
       <div class="card-head">
-        <div><h2>Wertentwicklung</h2><div class="hint" id="hint1"></div></div>
-        <div class="seg" role="group" aria-label="Darstellung" id="unit">
-          <button data-u="pct" aria-pressed="true">Rendite</button><button data-u="eur">Wert</button>
+        <div><h2>Entwicklung</h2><div class="hint">Wert in Euro, inklusive aller Einzahlungen</div></div>
+        <div class="seg range-seg" role="group" aria-label="Zeitraum" id="range-bot">
+          <button data-r="7">1W</button><button data-r="30">1M</button><button data-r="90">3M</button><button data-r="0">Alles</button>
         </div>
       </div>
-      <div class="legend" id="legend1" style="margin:-4px 0 12px"></div>
-      <div class="chart" id="chart1"></div>
-      <details class="table-view"><summary>Als Tabelle anzeigen</summary><div class="scroll" id="table1"></div></details>
-    </section>
-
-    <section class="card span-12">
-      <div class="card-head">
-        <div><h2>Vorsprung gegenüber ETF-Sparplan</h2><div class="hint">Über der Linie liegt der Bot vorne, darunter hinten</div></div>
-        <div class="legend"><span><i class="swatch" style="background:var(--div-pos)"></i>vorne</span><span><i class="swatch" style="background:var(--div-neg)"></i>hinten</span></div>
-      </div>
-      <div class="chart" id="chart2"></div>
+      <div class="chart" id="chart-bot"></div>
     </section>
 
     <section class="card span-5">
@@ -137,13 +113,107 @@
       <div class="card-head"><div><h2>Trades</h2><div class="hint">Jeder ausgeführte Trade mit Claudes Begründung</div></div></div>
       <div class="trades" id="trades"></div>
     </section>
-  </div>
 
-  <footer>Papierhandel mit simuliertem Geld · Kein Finanzrat · Stand <span id="gen"></span><br>
-    <button class="linkbtn" data-abmelden type="button">Abmelden</button></footer>
-</main>
+    <!-- nur-app -->
+    <section class="card span-12 controls">
+      <div class="control">
+        <div class="txt"><div class="t">Not-Aus</div><div class="s" id="notaus-text"></div></div>
+        <button class="btn danger" id="notaus-btn" type="button"></button>
+      </div>
+      <div class="control">
+        <div class="txt"><div class="t">Mitteilungen</div><div class="s" id="push-text"></div></div>
+        <button class="btn" id="push-btn" type="button"></button>
+      </div>
+    </section>
+    <!-- /nur-app -->
+  </div>
 </div>
 
+<div id="tab-sparplan" role="tabpanel" aria-labelledby="tabbtn-sparplan" hidden>
+  <section class="hero">
+    <div>
+      <div class="eyebrow">Sparplan MSCI World</div>
+      <div class="big num" id="sp-value">–</div>
+      <div class="delta num" id="sp-delta"></div>
+      <div class="sp-name" id="sp-name"></div>
+    </div>
+  </section>
+
+  <div class="grid">
+    <section class="card span-3 kpi"><div class="lbl">Eingezahlt</div><div class="val num" id="k-sp-deposited"></div><div class="sub" id="k-sp-deposited-sub"></div></section>
+    <section class="card span-3 kpi"><div class="lbl">Anteile</div><div class="val num" id="k-sp-units"></div><div class="sub">Stück</div></section>
+    <section class="card span-3 kpi"><div class="lbl">Durchschnittskurs</div><div class="val num" id="k-sp-avg"></div><div class="sub">inkl. Spread</div></section>
+    <section class="card span-3 kpi"><div class="lbl">Aktueller Kurs</div><div class="val num" id="k-sp-price"></div><div class="sub">je Anteil</div></section>
+
+    <section class="card span-12">
+      <div class="card-head">
+        <div><h2>Entwicklung</h2><div class="hint">Wert in Euro, inklusive aller Einzahlungen</div></div>
+        <div class="seg range-seg" role="group" aria-label="Zeitraum" id="range-sparplan">
+          <button data-r="7">1W</button><button data-r="30">1M</button><button data-r="90">3M</button><button data-r="0">Alles</button>
+        </div>
+      </div>
+      <div class="chart" id="chart-sparplan"></div>
+    </section>
+
+    <section class="card span-12">
+      <div class="card-head"><div><h2>Käufe</h2><div class="hint">Jede Einzahlung, im selben Lauf zum selben Kurs wie der Bot</div></div></div>
+      <div id="sp-buys"></div>
+    </section>
+  </div>
+</div>
+
+<div id="tab-vergleich" role="tabpanel" aria-labelledby="tabbtn-vergleich" hidden>
+  <section class="hero">
+    <div>
+      <div class="eyebrow" id="vs-title"></div>
+      <div class="big num" id="vs-big">–</div>
+      <div class="delta num" id="vs-sub"></div>
+    </div>
+  </section>
+
+  <div class="grid">
+    <section class="card span-12">
+      <div class="card-head">
+        <div><h2>Bot und Sparplan</h2><div class="hint" id="hint-vergleich"></div></div>
+        <div class="seg" role="group" aria-label="Darstellung" id="unit">
+          <button data-u="pct">Rendite</button><button data-u="eur">Wert</button>
+        </div>
+        <div class="seg range-seg" role="group" aria-label="Zeitraum" id="range-vergleich">
+          <button data-r="7">1W</button><button data-r="30">1M</button><button data-r="90">3M</button><button data-r="0">Alles</button>
+        </div>
+      </div>
+      <div class="legend" id="legend-vergleich" style="margin:-4px 0 12px"></div>
+      <div class="chart" id="chart-vergleich"></div>
+      <details class="table-view"><summary>Als Tabelle anzeigen</summary><div class="scroll" id="table-vergleich"></div></details>
+    </section>
+
+    <section class="card span-12">
+      <div class="card-head">
+        <div><h2>Vorsprung</h2><div class="hint">Über der Linie liegt der Bot vorne, darunter der Sparplan</div></div>
+        <div class="legend"><span><i class="swatch" style="background:var(--div-pos)"></i>Bot vorne</span><span><i class="swatch" style="background:var(--div-neg)"></i>Sparplan vorne</span></div>
+      </div>
+      <div class="chart" id="chart-lead"></div>
+    </section>
+
+    <section class="card span-12">
+      <div class="card-head"><div><h2>Kennzahlen</h2><div class="hint">Der Rückgang rechnet Einzahlungen heraus und zählt die Stände der Läufe</div></div></div>
+      <div id="vs-table"></div>
+    </section>
+  </div>
+</div>
+
+  <footer>Papierhandel mit simuliertem Geld · Kein Finanzrat · Stand <span id="gen"></span><!-- nur-app --><br>
+    <button class="linkbtn" data-abmelden type="button">Abmelden</button><!-- /nur-app --></footer>
+</main>
+
+<nav class="tabbar" role="tablist" aria-label="Bereiche">
+  <button class="tabbtn" id="tabbtn-bot" role="tab" aria-controls="tab-bot" type="button"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="8" width="14" height="11" rx="3"/><path d="M12 8V4M9.5 13v1M14.5 13v1"/></svg><span>Bot</span></button>
+  <button class="tabbtn" id="tabbtn-sparplan" role="tab" aria-controls="tab-sparplan" type="button"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19h16M7 15v4M12 11v8M17 6v13"/></svg><span>Sparplan</span></button>
+  <button class="tabbtn" id="tabbtn-vergleich" role="tab" aria-controls="tab-vergleich" type="button"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 17l5-6 4 3 7-9"/><path d="M4 12l5 1 4-3 7 3" opacity=".55"/></svg><span>Vergleich</span></button>
+</nav>
+</div>
+
+<!-- nur-app -->
 <dialog id="frage">
   <h2 id="frage-titel"></h2>
   <p id="frage-text"></p>
@@ -152,6 +222,7 @@
     <button class="btn danger" id="frage-ja" type="button"></button>
   </div>
 </dialog>
+<!-- /nur-app -->
 <div class="tip" id="tip" role="status" aria-live="polite"></div>
 <noscript>Bitte JavaScript aktivieren, damit die App funktioniert.</noscript>
 </body>
