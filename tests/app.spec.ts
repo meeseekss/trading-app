@@ -213,6 +213,13 @@ test('Live-Stand bleibt beim Zurückkehren, ein neuerer Lauf ersetzt ihn', async
   await expect(page.locator('#value')).toHaveText(/101,50/);
 });
 
+test('Trades zeigen Stückzahl und Ausführungskurs', async ({ page }) => {
+  await supabase(page);
+  await anmelden(page);
+  await expect(page.locator('#trades .how')).toContainText('0,38 Stück zu je 130,60 €');
+  await expect(page.locator('#trades .how')).toContainText('inkl. Spread');
+});
+
 test('Abmelden führt zurück zum Formular', async ({ page }) => {
   await supabase(page);
   await anmelden(page);

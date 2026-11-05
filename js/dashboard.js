@@ -8,6 +8,7 @@ const eur = new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" 
 const eur0 = new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
 const usd = new Intl.NumberFormat("de-DE", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 3 });
 const pct = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1, minimumFractionDigits: 1 });
+const stueck = new Intl.NumberFormat("de-DE", { maximumSignificantDigits: 6 });
 const dShort = new Intl.DateTimeFormat("de-DE", { day: "numeric", month: "short" });
 const dLong = new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "numeric", month: "long", year: "numeric" });
 const dTime = new Intl.DateTimeFormat("de-DE", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
@@ -287,6 +288,7 @@ function renderTrades() {
       <div class="when">${dTime.format(toDate(t.t))}</div>
       <div class="what"><span class="side">${t.side === "buy" ? "KAUF" : "VERKAUF"}</span>${esc(t.name)}</div>
       <div><div class="amt">${t.side === "buy" ? "−" : "+"}${eur.format(t.amount)}</div><div class="fee">Gebühr ${eur.format(t.fee)}</div></div>
+      ${t.qty != null && t.price != null ? `<div class="how num">${stueck.format(t.qty)} Stück zu je ${eur.format(t.price)} <span class="muted">inkl. Spread</span></div>` : ""}
       <div class="why">${esc(t.reason)}${t.conf != null ? ` <span class="muted">· Sicherheit ${Math.round(t.conf * 100)} %</span>` : ""}</div>
     </div>`).join("") : `<div class="empty">Noch keine Trades.</div>`) + more;
   $("more")?.addEventListener("click", () => { showAllTrades = !showAllTrades; renderTrades(); });
