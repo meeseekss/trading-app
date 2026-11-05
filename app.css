@@ -227,13 +227,6 @@ main.wrap { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
 .btn:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .linkbtn { border: 0; background: none; color: var(--text-3); font: inherit; font-size: 12px; text-decoration: underline; cursor: pointer; padding: 8px; }
 
-/* Werte im Depot unter dem Depotwert */
-.holdings { display: grid; gap: 10px; margin-top: 14px; max-width: 460px; }
-.holdings:empty { display: none; }
-.holding-top { display: flex; justify-content: space-between; gap: 16px; font-weight: 500; }
-.holding-top .v { white-space: nowrap; }
-.holding-sub { color: var(--text-3); font-size: 13px; }
-
 /* Knopf „Jetzt aktualisieren“ */
 .live { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin-top: 14px; }
 .live .s { color: var(--text-3); font-size: 13px; }
@@ -265,8 +258,9 @@ dialog .btn { flex: 1; }
   .hero { padding-top: 24px; }
 }
 
-/* Leiste unten */
-main.wrap { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
+/* Leiste unten: 49px Knopf, 4px oben, 1px Linie */
+:root { --tabbar-h: 54px; }
+main.wrap { padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 24px); }
 #banner:empty { display: none; }
 #banner { margin: -8px 0 24px; }
 .controls { margin-bottom: 0; }
@@ -274,7 +268,7 @@ main.wrap { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
 #vs-table td:first-child { color: var(--text-2); }
 .tabbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; display: flex; justify-content: center;
   padding: 4px max(8px, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(8px, env(safe-area-inset-left));
-  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  background: color-mix(in srgb, var(--bg) 94%, transparent);
   -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px);
   border-top: 1px solid var(--hair); }
 .tabbtn { flex: 1; max-width: 160px; min-height: 49px; border: 0; background: none; color: var(--text-3); cursor: pointer;
@@ -283,6 +277,6 @@ main.wrap { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
 .tabbtn[aria-selected="true"] { color: var(--accent); }
 .tabbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 10px; }
 @media (max-width: 600px) {
-  main.wrap { padding-bottom: calc(88px + env(safe-area-inset-bottom)); }
+  main.wrap { padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 24px); }
 }
 .seg button { min-height: 36px; }

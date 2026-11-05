@@ -66,8 +66,31 @@ function niceTicks(min, max, count = 4) {
   for (let t = lo; t <= hi + step / 2; t += step) ticks.push(+t.toFixed(10));
   return { lo, hi, ticks };
 }
+// Die Kurve endet immer bei den Zahlen, die oben stehen. Weichen sie vom letzten Lauf ab, etwa nach
+// „Jetzt aktualisieren“ oder beim Bauen mit aktuellen Kursen, kommt ein Punkt für den aktuellen Stand dazu.
+function mitAktuell({ runs, summary: S, generated_at }) {
+  if (!runs.length) return runs;
+  const last = runs[runs.length - 1];
+  const weicht = (a, b) => a != null && (b == null || Math.abs(a - b) >= 0.005);
+  if (!weicht(S.value, last.v) && !weicht(S.bench, last.b)) return runs;
+  const punkt = { ...last, t: generated_at ?? last.t, v: S.value, b: S.bench ?? last.b, d: S.deposited };
+  return toDate(punkt.t) > toDate(last.t) ? [...runs, punkt] : [...runs.slice(0, -1), { ...punkt, t: last.t }];
+}
+
+// Höchstens so viele Beschriftungen, wie mit Abstand passen. Gleiche Daten nur einmal.
+function xLabels(svg, breite, y, n, posX, text) {
+  const anzahl = Math.max(2, Math.min(6, Math.floor(breite / 90)));
+  let vorher = null;
+  for (let k = 0; k < anzahl; k++) {
+    const t = text(k / (anzahl - 1));
+    if (t === vorher) continue;
+    vorher = t;
+    svgEl("text", { x: posX(k / (anzahl - 1)), y, class: "xlbl", "text-anchor": k === 0 ? "start" : k === anzahl - 1 ? "end" : "middle" }, svg).textContent = t;
+  }
+}
+
 function filtered() {
-  const runs = DATA.runs;
+  const runs = DATA.kurve;
   if (!range || !runs.length) return runs;
   const last = toDate(runs[runs.length - 1].t).getTime();
   return runs.filter(r => toDate(r.t).getTime() >= last - range * 864e5);
@@ -100,12 +123,7 @@ function lineChart({ id, series: wanted, P = false, legend, hint, table, aria })
     svgEl("line", { x1: m.l, x2: W - m.r, y1: Y(t), y2: Y(t), class: P && t === 0 ? "zero" : "gridline" }, svg);
     svgEl("text", { x: m.l - 8, y: Y(t) + 4, "text-anchor": "end" }, svg).textContent = fmtY(t);
   }
-  const nX = Math.max(2, Math.min(6, Math.floor((W - m.l - m.r) / 110)));
-  for (let i = 0; i < nX; i++) {
-    const t = x0 + (x1 - x0) * i / (nX - 1);
-    svgEl("text", { x: X(t), y: H - 8, "text-anchor": i === 0 ? "start" : i === nX - 1 ? "end" : "middle" }, svg)
-      .textContent = dShort.format(new Date(t));
-  }
+  xLabels(svg, W - m.l - m.r, H - 8, runs.length, f => X(x0 + (x1 - x0) * f), f => dShort.format(new Date(x0 + (x1 - x0) * f)));
   // Einzahlungen als gestrichelte Treppe
   if (!P) {
     let dp = "";
@@ -114,6 +132,8 @@ function lineChart({ id, series: wanted, P = false, legend, hint, table, aria })
     svgEl("path", { d: dp, fill: "none", stroke: cssVar("--text-3"), "stroke-width": 1.5, "stroke-dasharray": "4 4" }, svg);
   }
 
+  const ende = runs[runs.length - 1];
+  svg.setAttribute("data-ende", JSON.stringify(Object.fromEntries(series.map(s => [s.key, val(ende, s.key) == null ? null : +val(ende, s.key).toFixed(2)]))));
   const ends = [];
   for (const s of [...series].reverse()) {
     let d = "", started = false;
@@ -172,6 +192,7 @@ function barChart() {
   const m = { t: 10, r: 12, b: 26, l: 52 };
   const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, height: H, role: "img", "aria-label": "Vorsprung des Bots gegenüber dem Sparplan in Euro" }, el);
   const diffs = runs.map(r => r.v - r.b);
+  svg.setAttribute("data-ende", diffs[diffs.length - 1].toFixed(2));
   const ext = Math.max(0.5, ...diffs.map(Math.abs));
   const { lo, hi, ticks } = niceTicks(Math.min(0, ...diffs, -ext * 0.25), Math.max(0, ...diffs, ext * 0.25), 3);
   const Y = v => m.t + (1 - (v - lo) / (hi - lo)) * (H - m.t - m.b);
@@ -197,12 +218,8 @@ function barChart() {
     hit.addEventListener("mousemove", show); hit.addEventListener("mouseleave", hideTip);
     hit.addEventListener("touchstart", show, { passive: true }); hit.addEventListener("touchend", hideTip);
   });
-  const nX = Math.min(5, n);
-  for (let k = 0; k < nX; k++) {
-    const i = Math.round((n - 1) * k / Math.max(1, nX - 1));
-    svgEl("text", { x: m.l + i * slot + slot / 2, y: H - 8, "text-anchor": k === 0 ? "start" : k === nX - 1 ? "end" : "middle" }, svg)
-      .textContent = dShort.format(toDate(runs[i].t));
-  }
+  const index = f => Math.round((n - 1) * f);
+  xLabels(svg, W - m.l - m.r, H - 8, n, f => m.l + index(f) * slot + slot / 2, f => dShort.format(toDate(runs[index(f)].t)));
 }
 
 /* ---------- Statische Teile ---------- */
@@ -219,10 +236,6 @@ function renderStatic() {
   $("value").textContent = eur.format(S.value);
   const pl = S.value - S.deposited, plp = S.deposited ? pl / S.deposited * 100 : 0;
   $("delta").innerHTML = `<span class="${dirClass(pl)}">${arrow(pl)}${signed(pl)} (${signed(plp, pct).replace("€", "")} %)</span> · ${eur.format(S.deposited)} eingezahlt`;
-
-  $("holdings").innerHTML = DATA.positions.map(p => { const g = p.value - p.cost, kurs = p.kurs ?? (p.qty ? p.value / p.qty : null);
-    return `<div class="holding"><div class="holding-top"><span>${esc(p.name)}${p.tier === "risk" ? tagHtml(p) : ""}</span><span class="v num">${eur.format(p.value)}</span></div>
-      <div class="holding-sub num"><span class="${dirClass(g)}">${arrow(g)}${pct.format(Math.abs(p.pnl_pct))} %</span>${kurs ? ` · Kurs ${kursEur(kurs)}` : ""}</div></div>`; }).join("");
 
   const ban = [];
   if (st.stopped) ban.push(`<b>Not-Aus aktiv.</b> Der Bot handelt nicht, bis du ihn wieder löst.`);
@@ -255,7 +268,7 @@ function renderStatic() {
   // Positionen
   $("pos-hint").textContent = DATA.status.has_live_prices ? "Mit aktuellen Kursen bewertet" : "Zum Einstandspreis bewertet (keine aktuellen Kurse)";
   $("positions").innerHTML = DATA.positions.length || S.cash ? `<table><thead><tr><th>Wert</th><th class="r">Betrag</th><th class="r">Gewinn</th><th class="r">Anteil</th></tr></thead><tbody>` +
-    DATA.positions.map(p => { const g = p.value - p.cost; return `<tr><td>${esc(p.name)}${tagHtml(p)}</td>
+    DATA.positions.map(p => { const g = p.value - p.cost, kurs = p.kurs ?? (p.qty ? p.value / p.qty : null); return `<tr><td>${esc(p.name)}${tagHtml(p)}${kurs ? `<div class="muted num" style="font-size:12px">Kurs ${kursEur(kurs)}</div>` : ""}</td>
       <td class="r">${eur.format(p.value)}</td><td class="r ${dirClass(g)}">${arrow(g)}${pct.format(Math.abs(p.pnl_pct))} %<div class="muted" style="font-size:12px">${signed(g)}</div></td>
       <td class="r">${pct.format(p.value / total * 100)} %</td></tr>`; }).join("") +
     `<tr><td>Bargeld</td><td class="r">${eur.format(S.cash)}</td><td class="r muted">–</td><td class="r">${pct.format(S.cash / total * 100)} %</td></tr></tbody></table>`
@@ -269,7 +282,7 @@ function renderStatic() {
   if (lastRun) {
     $("chips").innerHTML = `<span class="chip"><b class="num">${lastRun.p}</b>vorgeschlagen</span>
       <span class="chip"><b class="num">${lastRun.e}</b>ausgeführt</span>
-      <span class="chip"><b class="num">${lastRun.r.length}</b>von der Risikoprüfung gestoppt</span>`;
+      <span class="chip"><b class="num">${lastRun.p - lastRun.e}</b>von der Risikoprüfung gestoppt</span>`;
     $("rej").innerHTML = lastRun.r.map(x => `<li>${esc(x)}</li>`).join("");
   }
 
@@ -296,11 +309,11 @@ function renderSparplan() {
   $("sp-value").textContent = eur.format(wert);
   $("sp-delta").innerHTML = `<span class="${dirClass(g)}">${arrow(g)}${signed(g)} (${pctS(rendite(wert, S.deposited))} %)</span> · ${eur.format(S.deposited)} eingezahlt`;
   $("sp-name").textContent = sp.name ?? "";
-  const einsatz = sp.buys.reduce((n, b) => n + b.amount, 0);
+  const einsatz = sp.buys.reduce((n, b) => n + b.amount, 0), anteile = sp.buys.reduce((n, b) => n + b.units, 0);
   $("k-sp-deposited").textContent = eur.format(S.deposited);
   $("k-sp-deposited-sub").textContent = sp.pending > 0 ? `${eur.format(sp.pending)} warten auf den nächsten Lauf` : "dieselben Einzahlungen wie beim Bot";
   $("k-sp-units").textContent = stueck.format(sp.units);
-  $("k-sp-avg").textContent = sp.units ? eur.format(einsatz / sp.units) : "–";
+  $("k-sp-avg").textContent = anteile ? eur.format(einsatz / anteile) : "–";
   $("k-sp-price").textContent = sp.price ? eur.format(sp.price) : "–";
   $("sp-buys").innerHTML = sp.buys.length ? `<table><thead><tr><th>Datum</th><th class="r">Betrag</th><th class="r">Kurs</th><th class="r">Anteile</th></tr></thead><tbody>` +
     sp.buys.map(b => `<tr><td>${dShort.format(toDate(b.t))}</td><td class="r">${eur.format(b.amount)}</td><td class="r">${eur.format(b.price)}</td><td class="r">${stueck.format(b.units)}</td></tr>`).join("") +
@@ -311,7 +324,7 @@ function renderSparplan() {
 // Größter Rückgang vom Höchststand, gemessen an Wert je eingezahltem Euro: Einzahlungen zählen nicht als Gewinn.
 function maxRueckgang(key) {
   let peak = 0, dd = null;
-  for (const r of DATA.runs) {
+  for (const r of DATA.kurve) {
     if (r[key] == null || !r.d) continue;
     const q = r[key] / r.d;
     peak = Math.max(peak, q);
@@ -431,7 +444,7 @@ new ResizeObserver(([e]) => {
 }).observe(document.querySelector("main"));
 
 export function zeigen(daten) {
-  DATA = daten;
+  DATA = { ...daten, kurve: mitAktuell(daten) };
   renderStatic();
   renderCharts();
 }

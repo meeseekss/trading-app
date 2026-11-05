@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 
 const ZEIT = '2026-11-05T09:15:05+00:00';
 const RUNS = [
-  { zeit: '2026-11-07T09:15:05+00:00', portfolio_value_eur: 156, cash_eur: 74.01, deposited_eur: 150, benchmark_value_eur: 153, orders_proposed: 2, orders_executed: 0, rejections: ['Krypto wäre über 35 %'], market_view: 'Ruhiger Markt.', api_cost_usd_total: 0.002 },
+  { zeit: '2026-11-07T09:15:05+00:00', portfolio_value_eur: 156, cash_eur: 74.01, deposited_eur: 150, benchmark_value_eur: 153, orders_proposed: 2, orders_executed: 1, rejections: ['Krypto wäre über 35 %'], market_view: 'Ruhiger Markt.', api_cost_usd_total: 0.002 },
   { zeit: '2026-11-06T09:15:05+00:00', portfolio_value_eur: 141, cash_eur: 74.01, deposited_eur: 150, benchmark_value_eur: 147, orders_proposed: 0, orders_executed: 0, rejections: [], market_view: 'Schwach.', api_cost_usd_total: 0.0015 },
   { zeit: ZEIT, portfolio_value_eur: 150, cash_eur: 74.01, deposited_eur: 150, benchmark_value_eur: 149.85, orders_proposed: 1, orders_executed: 1, rejections: [], market_view: 'Erster Kauf.', api_cost_usd_total: 0.001 },
 ];
@@ -120,7 +120,7 @@ test('Risiko-Coins tragen das Etikett, winzige Kurse bleiben lesbar', async ({ p
   await expect(zeile.locator('.tag.risk')).toHaveText('Risiko');
   await expect(page.locator('#positions tr', { hasText: 'Solana' }).locator('.tag')).toHaveText('Altcoin');
   await expect(page.locator('#positions tr', { hasText: 'Bitcoin' }).locator('.tag')).toHaveText('Basis');
-  await expect(page.locator('#holdings .holding', { hasText: 'Pepe' })).toContainText('Kurs 0,000004286 €');
+  await expect(zeile).toContainText('Kurs 0,000004286 €');
 });
 
 test('die älteste Zeile steht im Diagramm links: Läufe werden umgedreht', async ({ page }) => {
@@ -263,7 +263,6 @@ test('Tab-Leiste bleibt unten sichtbar, groß genug und lässt Platz für die Sa
   await supabase(page);
   await anmelden(page);
   const leiste = page.locator('.tabbar');
-  await page.evaluate(() => scrollTo(0, document.body.scrollHeight));
   const box = await leiste.boundingBox();
   const hoehe = page.viewportSize()!.height;
   expect(Math.round(box!.y + box!.height)).toBe(hoehe);
@@ -271,10 +270,20 @@ test('Tab-Leiste bleibt unten sichtbar, groß genug und lässt Platz für die Sa
     const b = await page.locator(`#tabbtn-${t}`).boundingBox();
     expect(b!.height).toBeGreaterThanOrEqual(44);
   }
-  expect(readFileSync('app.css', 'utf-8')).toMatch(/\.tabbar[^}]*env\(safe-area-inset-bottom\)/);
-  // Der letzte Inhalt verschwindet nicht hinter der Leiste.
-  const fuss = await page.locator('footer').boundingBox();
-  expect(fuss!.y + fuss!.height).toBeLessThanOrEqual(box!.y);
+  const css = readFileSync('app.css', 'utf-8');
+  expect(css).toMatch(/\.tabbar[^}]*env\(safe-area-inset-bottom\)/);
+  expect(css).toMatch(/main\.wrap \{ padding-bottom: calc\(var\(--tabbar-h\) \+ env\(safe-area-inset-bottom\)/);
+  // Ganz unten verdeckt die Leiste in keinem Tab die letzte Karte oder den Abmelden-Link.
+  for (const t of ['bot', 'sparplan', 'vergleich']) {
+    await page.click(`#tabbtn-${t}`);
+    await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight));
+    await page.waitForTimeout(50);
+    const oben = (await leiste.boundingBox())!.y;
+    const link = await page.locator('footer [data-abmelden]').boundingBox();
+    expect(link!.y + link!.height).toBeLessThanOrEqual(oben);
+    const karte = await page.locator(`#tab-${t} .card`).last().boundingBox();
+    expect(karte!.y + karte!.height).toBeLessThanOrEqual(oben);
+  }
 });
 
 test('Mitteilungen öffnen den Tab Bot', () => {
@@ -350,7 +359,6 @@ test('Jetzt aktualisieren bewertet das Depot neu und speichert nichts', async ({
   await expect(page.locator('#live-text')).toContainText('nicht gespeichert');
   await expect(page.locator('#live-text')).not.toContainText('Ohne aktuellen Kurs');
   expect(stand.schreibzugriffe).toBe(0);
-  // Die Kurven zeigen weiter nur die Läufe.
   await expect(page.locator('#k-runs')).toHaveText('3');
   // Pause, damit Yahoo und Kraken nicht dauernd gefragt werden
   await expect(page.locator('#live-btn')).toBeDisabled();
@@ -397,27 +405,121 @@ test('Trades zeigen Stückzahl und Ausführungskurs', async ({ page }) => {
   await expect(page.locator('#trades .how')).toContainText('inkl. Spread');
 });
 
-test('unter dem Depotwert stehen Wert, Gewinn und Kurs je Position', async ({ page }) => {
+test('unter dem Depotwert steht keine Positionsliste, die Karte zeigt Wert und Kurs', async ({ page }) => {
   await supabase(page, { kurse: { body: ALLE_KURSE } });
   await anmelden(page);
-  const zeile = page.locator('#holdings .holding');
-  await expect(zeile).toHaveCount(1);
-  await expect(zeile).toContainText('iShares Core MSCI World');
+  await expect(page.locator('#holdings')).toHaveCount(0);
+  await expect(page.locator('#live-btn')).toBeVisible();
+  const zeile = page.locator('#positions tr', { hasText: 'MSCI World' });
   await expect(zeile).toContainText('52,49 €');
-  await expect(zeile).toContainText('5,0 %');
   await expect(zeile).toContainText('Kurs 138,13 €'); // 52,49 € / 0,38 Stück
-
   await page.click('#live-btn');
   await expect(zeile).toContainText('53,20 €');
   await expect(zeile).toContainText('Kurs 140,00 €');
-  await expect(zeile).toContainText('6,4 %');
 });
 
-test('ohne Positionen bleibt der Bereich unter dem Depotwert leer', async ({ page }) => {
-  await supabase(page, { positions: [] });
+test('Zähler gehen auf: ausgeführt und gestoppt ergeben vorgeschlagen', async ({ page }) => {
+  await supabase(page);
   await anmelden(page);
-  await expect(page.locator('#holdings .holding')).toHaveCount(0);
-  await expect(page.locator('#holdings')).toBeHidden();
+  const chips = page.locator('#chips .chip');
+  await expect(chips.nth(0)).toHaveText('2vorgeschlagen');
+  await expect(chips.nth(1)).toHaveText('1ausgeführt');
+  await expect(chips.nth(2)).toHaveText('1von der Risikoprüfung gestoppt');
+});
+
+test('Not-Aus im Lauf zählt nicht als gestoppte Order, der Grund bleibt sichtbar', async ({ page }) => {
+  await supabase(page, { runs: [{ ...RUNS[0], orders_proposed: 0, orders_executed: 0, rejections: ['Not-Aus in der App aktiv – nichts gehandelt'] }, RUNS[2]] });
+  await anmelden(page);
+  await expect(page.locator('#chips .chip').nth(2)).toHaveText('0von der Risikoprüfung gestoppt');
+  await expect(page.locator('#rej')).toContainText('Not-Aus in der App aktiv');
+});
+
+async function ende(page: Page) {
+  await page.click('#tabbtn-vergleich');
+  await page.click('#unit button[data-u="pct"]');
+  const pct = JSON.parse((await page.locator('#chart-vergleich svg').getAttribute('data-ende'))!);
+  const balken = Number(await page.locator('#chart-lead svg').getAttribute('data-ende'));
+  await page.click('#unit button[data-u="eur"]');
+  const eur = JSON.parse((await page.locator('#chart-vergleich svg').getAttribute('data-ende'))!);
+  return { pct, balken, eur };
+}
+const fmt = (n: number) => n.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmt1 = (n: number) => n.toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+
+test('Kurvenende, letzter Balken, Kopfzeile und Kennzahlen sind identisch', async ({ page }) => {
+  await supabase(page);
+  await anmelden(page);
+  const e = await ende(page);
+  expect(e.eur).toEqual({ v: 156, b: 153 });
+  expect(e.pct).toEqual({ v: 4, b: 2 });
+  expect(e.balken).toBe(3);
+  await expect(page.locator('#vs-big')).toHaveText(`${fmt(e.balken)} €`);
+  await expect(page.locator('#vs-sub')).toContainText(`${fmt1(e.pct.v - e.pct.b)} Prozentpunkte`);
+  const zeile = (n: string) => page.locator('#vs-table tr', { hasText: n });
+  await expect(zeile('Wert')).toContainText(`${fmt(e.eur.v)} €`);
+  await expect(zeile('Wert')).toContainText(`${fmt(e.eur.b)} €`);
+  await expect(zeile('Rendite')).toContainText(`+${fmt1(e.pct.v)} %`);
+  await expect(zeile('Rendite')).toContainText(`+${fmt1(e.pct.b)} %`);
+});
+
+test('auch mit Live-Kursen enden Kurve und Balken bei den Zahlen oben', async ({ page }) => {
+  await supabase(page, { kurse: { body: ALLE_KURSE } });
+  await anmelden(page);
+  await page.click('#live-btn');
+  await expect(page.locator('#value')).toHaveText(/156,71/);
+  const e = await ende(page);
+  expect(e.eur).toEqual({ v: 156.71, b: 350 }); // 103,51 € + 0,38 × 140 € und 2,5 × 140 €
+  expect(e.balken).toBe(-193.29);
+  await expect(page.locator('#vs-big')).toHaveText('193,29 €');
+  await expect(page.locator('#vs-title')).toHaveText('Der Sparplan liegt vorne');
+  await expect(page.locator('#k-runs')).toHaveText('3'); // Der Live-Punkt zählt nicht als Lauf.
+});
+
+test('weicht der gespeicherte Stand vom letzten Lauf ab, stimmen Kurve und Zahlen trotzdem', async ({ page }) => {
+  const s = status();
+  await supabase(page, { status: [{ ...s, kennzahlen: { ...s.kennzahlen, generated_at: '2026-11-07T15:00:00Z', summary: { ...s.kennzahlen.summary, value: 158, bench: 154 } } }] });
+  await anmelden(page);
+  const e = await ende(page);
+  expect(e.eur).toEqual({ v: 158, b: 154 });
+  expect(e.balken).toBe(4);
+});
+
+test('Kurven sind gerade Linien zwischen den Läufen', async ({ page }) => {
+  await supabase(page);
+  await anmelden(page);
+  await page.click('#tabbtn-vergleich');
+  const pfade = await page.locator('#chart-vergleich svg path').evaluateAll((p) => p.map((e) => e.getAttribute('d')!));
+  expect(pfade.length).toBeGreaterThan(0);
+  for (const d of pfade) expect(d).toMatch(/^[MLHV0-9.,\s-]+$/);
+});
+
+test('Datumsbeschriftungen berühren sich nicht', async ({ page }) => {
+  const viele = Array.from({ length: 60 }, (_, i) => ({ ...RUNS[2], zeit: new Date(Date.UTC(2026, 10, 6 + i, 9, 15)).toISOString() })).reverse();
+  viele[0] = { ...viele[0], portfolio_value_eur: 156, benchmark_value_eur: 153 };
+  await supabase(page, { runs: viele });
+  await anmelden(page);
+  const pruefe = async (id: string) => {
+    const boxen = await page.locator(`${id} text.xlbl`).evaluateAll((t) => t.map((e) => { const r = e.getBoundingClientRect(); return [r.left, r.right]; }));
+    expect(boxen.length).toBeGreaterThanOrEqual(2);
+    for (let i = 1; i < boxen.length; i++) expect(boxen[i][0] - boxen[i - 1][1]).toBeGreaterThanOrEqual(8);
+  };
+  await pruefe('#chart-bot');
+  await page.click('#tabbtn-sparplan');
+  await pruefe('#chart-sparplan');
+  await page.click('#tabbtn-vergleich');
+  await pruefe('#chart-vergleich');
+  await pruefe('#chart-lead');
+});
+
+test('Durchschnittskurs ist Summe der Beträge durch Summe der Anteile', async ({ page }) => {
+  const s = status();
+  await supabase(page, {
+    status: [{ ...s, kennzahlen: { ...s.kennzahlen, benchmark: { ...s.kennzahlen.benchmark, units: 2.31 } } }],
+    kaeufe: [{ zeit: ZEIT, symbol: 'EUNL.DE', betrag_eur: 150, kurs_eur: 132.1, anteile: 1.1355 }, { zeit: '2026-11-04T09:15:05+00:00', symbol: 'EUNL.DE', betrag_eur: 150, kurs_eur: 127.6, anteile: 1.1755 }],
+  });
+  await anmelden(page);
+  await page.click('#tabbtn-sparplan');
+  await expect(page.locator('#k-sp-avg')).toHaveText(/129,81/);
 });
 
 test('Abmelden führt zurück zum Formular', async ({ page }) => {
