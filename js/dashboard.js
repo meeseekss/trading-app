@@ -89,6 +89,27 @@ function xLabels(svg, breite, y, n, posX, text) {
   }
 }
 
+// Zeitgewichtete Rendite: was das Geld gebracht hat, solange es im Depot lag. Eine Einzahlung zählt nie
+// als Gewinn: Sie wird vom Zuwachs abgezogen, bevor die Rendite des Abschnitts zwischen zwei Läufen
+// berechnet wird. So ist die Zahl unabhängig davon, wann wie viel eingezahlt wurde, und Pläne mit
+// verschiedenen Einzahlungen sind vergleichbar. Der Daytrader rechnet genauso (twr_curve in daytrader.py).
+// Rückgabe: Rendite in % je Lauf, Rendite am Ende und größter Rückgang vom Höchststand in %.
+function zeitgewichtet(kurve, key) {
+  let index = null, vorWert = 0, vorEin = 0, hoch = 1, rueckgang = null, ende = null;
+  const reihe = kurve.map(r => {
+    const wert = r[key], ein = r.d;
+    if (wert == null || ein == null) return null;
+    if (index == null) { if (ein > 0) index = wert / ein; }
+    else if (vorWert > 0) index *= (wert - (ein - vorEin)) / vorWert;
+    vorWert = wert; vorEin = ein;
+    if (index == null) return null;
+    hoch = Math.max(hoch, index);
+    rueckgang = Math.max(rueckgang ?? 0, (1 - index / hoch) * 100);
+    return ende = (index - 1) * 100;
+  });
+  return { reihe, ende, rueckgang };
+}
+
 function filtered() {
   const runs = DATA.kurve;
   if (!range || !runs.length) return runs;
@@ -101,9 +122,11 @@ function lineChart({ id, series: wanted, P = false, legend, hint, table, aria })
   const el = $(id); el.innerHTML = "";
   const runs = filtered();
   const series = wanted.filter(s => runs.some(r => r[s.key] != null));
-  const val = (r, k) => r[k] == null ? null : P ? (r.d ? (r[k] / r.d - 1) * 100 : null) : r[k];
+  const val = (r, k) => r[k] == null ? null : P ? r.p[k] : r[k];
+  // Neben dem Eurowert: in der Ansicht „Rendite“ die zeitgewichtete Rendite, sonst Gewinn in Prozent der Einzahlungen
+  const proz = (r, k) => P ? r.p[k] : r.d ? (r[k] / r.d - 1) * 100 : null;
   const fmtY = v => P ? signed(v, pct).replace("±", "") + " %" : eur0.format(v);
-  if (hint) $(hint).textContent = P ? "Gewinn oder Verlust in Prozent der Einzahlungen" : "Wert in Euro, inklusive aller Einzahlungen";
+  if (hint) $(hint).textContent = P ? "Rendite in Prozent, Einzahlungen herausgerechnet" : "Wert in Euro, inklusive aller Einzahlungen";
   if (legend) $(legend).innerHTML = series.map(s =>
     `<span><i class="swatch line" style="background:var(${s.color})"></i>${s.name}</span>`).join("")
     + (P ? "" : `<span><i class="swatch dash"></i>Eingezahlt</span>`);
@@ -168,7 +191,7 @@ function lineChart({ id, series: wanted, P = false, legend, hint, table, aria })
     showTip(`<div class="h">${dLong.format(toDate(r.t))}</div>` +
       series.map(s => r[s.key] == null ? "" :
         `<div class="row"><i class="swatch" style="background:var(${s.color})"></i><span class="n">${s.name}</span><span class="v">${eur.format(r[s.key])}</span>` +
-        (r.d ? `<span class="muted num" style="width:52px;text-align:right">${signed((r[s.key] / r.d - 1) * 100, pct).replace("±", "")} %</span>` : "") + `</div>`).join("") +
+        (proz(r, s.key) != null ? `<span class="muted num" style="width:52px;text-align:right">${signed(proz(r, s.key), pct).replace("±", "")} %</span>` : "") + `</div>`).join("") +
       `<div class="row"><i class="swatch dash"></i><span class="n">Eingezahlt</span><span class="v">${eur.format(r.d ?? 0)}</span></div>`,
       pt.clientX, pt.clientY);
   };
@@ -321,18 +344,6 @@ function renderSparplan() {
 }
 
 /* ---------- Tab Vergleich ---------- */
-// Größter Rückgang vom Höchststand, gemessen an Wert je eingezahltem Euro: Einzahlungen zählen nicht als Gewinn.
-function maxRueckgang(key) {
-  let peak = 0, dd = null;
-  for (const r of DATA.kurve) {
-    if (r[key] == null || !r.d) continue;
-    const q = r[key] / r.d;
-    peak = Math.max(peak, q);
-    dd = Math.max(dd ?? 0, (1 - q / peak) * 100);
-  }
-  return dd;
-}
-
 function renderVergleich() {
   const S = DATA.summary, b = S.bench;
   if (b == null) {
@@ -340,20 +351,27 @@ function renderVergleich() {
     $("vs-big").textContent = "–";
     $("vs-sub").textContent = "Der Sparplan kauft im ersten Lauf.";
   } else {
-    const d = S.value - b, pp = rendite(S.value, S.deposited) - rendite(b, S.deposited);
+    // Der Vorsprung in Euro, dazu derselbe Betrag in Prozent der Einzahlungen (bei beiden gleich hoch).
+    const d = S.value - b, anteil = S.deposited ? Math.abs(d) / S.deposited * 100 : 0;
     const gleich = Math.abs(d) < 0.005;
     $("vs-title").textContent = gleich ? "Gleichauf" : d > 0 ? "Der Bot liegt vorne" : "Der Sparplan liegt vorne";
     $("vs-big").textContent = eur.format(Math.abs(d));
-    $("vs-sub").textContent = `${pct.format(Math.abs(pp))} Prozentpunkte · Bot ${eur.format(S.value)} · Sparplan ${eur.format(b)}`;
+    $("vs-sub").textContent = `${pct.format(anteil)} % der Einzahlungen · Bot ${eur.format(S.value)} · Sparplan ${eur.format(b)}`;
   }
-  const dd = k => { const v = maxRueckgang(k); return v == null ? "–" : `${v > 0 ? "−" : ""}${pct.format(v)} %`; };
+  // Rendite und Rückgang zeitgewichtet: Sie enden bei denselben Zahlen wie die Kurve „Rendite“.
+  const klein = t => `<div class="muted" style="font-size:12px">${t}</div>`;
+  const dd = k => { const v = DATA.twr[k].rueckgang; return v == null ? "–" : `${v >= 0.05 ? "−" : ""}${pct.format(v)} %`; };
+  const twr = k => DATA.twr[k].ende == null ? "–" : `${pctS(DATA.twr[k].ende)} %`;
+  const gewinn = wert => `<span class="${dirClass(wert - S.deposited)}">${signed(wert - S.deposited)}</span>`
+    + klein(`${pctS(rendite(wert, S.deposited))} %`);
   const zeile = (n, x, y) => `<tr><td>${n}</td><td class="r">${x}</td><td class="r">${y}</td></tr>`;
   $("vs-table").innerHTML = `<table><thead><tr><th></th>
     <th class="r"><i class="swatch" style="background:var(--s-bot)"></i> Bot</th>
     <th class="r"><i class="swatch" style="background:var(--s-etf)"></i> Sparplan</th></tr></thead><tbody>` +
     zeile("Wert", eur.format(S.value), b == null ? "–" : eur.format(b)) +
-    zeile("Rendite", `${pctS(rendite(S.value, S.deposited))} %`, b == null ? "–" : `${pctS(rendite(b, S.deposited))} %`) +
-    zeile("Gebühren", eur.format(S.fees_total), `${eur.format(0)}<div class="muted" style="font-size:12px">nur Spread</div>`) +
+    zeile(`Gewinn${klein("% der Einzahlungen")}`, gewinn(S.value), b == null ? "–" : gewinn(b)) +
+    zeile(`Rendite${klein("zeitgewichtet")}`, twr("v"), b == null ? "–" : twr("b")) +
+    zeile("Gebühren", eur.format(S.fees_total), `${eur.format(0)}${klein("nur Spread")}`) +
     zeile("Größter Rückgang", dd("v"), dd("b")) + `</tbody></table>`;
 }
 
@@ -444,7 +462,9 @@ new ResizeObserver(([e]) => {
 }).observe(document.querySelector("main"));
 
 export function zeigen(daten) {
-  DATA = { ...daten, kurve: mitAktuell(daten) };
+  const kurve = mitAktuell(daten);
+  const twr = { v: zeitgewichtet(kurve, "v"), b: zeitgewichtet(kurve, "b") };
+  DATA = { ...daten, twr, kurve: kurve.map((r, i) => ({ ...r, p: { v: twr.v.reihe[i], b: twr.b.reihe[i] } })) };
   renderStatic();
   renderCharts();
 }
