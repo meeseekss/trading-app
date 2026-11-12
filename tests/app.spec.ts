@@ -147,13 +147,13 @@ test('Tab Sparplan zeigt Wert, Rendite, Anteile, Kurse, Kurve und alle Käufe', 
   await expect(zeilen.nth(1)).toContainText('1,5');
 });
 
-test('Tab Vergleich: wer vorne liegt, mit Euro und Prozentpunkten', async ({ page }) => {
+test('Tab Vergleich: wer vorne liegt, in Euro und in Prozent der Einzahlungen', async ({ page }) => {
   await supabase(page);
   await anmelden(page);
   await page.click('#tabbtn-vergleich');
   await expect(page.locator('#vs-title')).toHaveText('Der Bot liegt vorne');
   await expect(page.locator('#vs-big')).toHaveText(/3,00/);
-  await expect(page.locator('#vs-sub')).toContainText('2,0 Prozentpunkte');
+  await expect(page.locator('#vs-sub')).toContainText('2,0 % der Einzahlungen');
   await expect(page.locator('#chart-vergleich svg')).toBeVisible();
   await expect(page.locator('#chart-lead svg')).toBeVisible();
   await expect(page.locator('#legend-vergleich')).toContainText('Sparplan');
@@ -174,9 +174,51 @@ test('Vergleich nennt den Sparplan, wenn er vorne liegt, und Kennzahlen nebenein
   await expect(zeile('Rendite')).toContainText('+2,0 %');
   await expect(zeile('Gebühren')).toContainText('0,99');
   await expect(zeile('Gebühren')).toContainText('nur Spread');
-  // 150 → 141 sind 6,0 % beim Bot, 149,85 → 147 sind 1,9 % beim Sparplan
+  // Gemessen ab dem eingezahlten Geld: 150 → 141 sind 6,0 % beim Bot, 150 → 147 sind 2,0 % beim Sparplan
   await expect(zeile('Größter Rückgang')).toContainText('−6,0 %');
-  await expect(zeile('Größter Rückgang')).toContainText('−1,9 %');
+  await expect(zeile('Größter Rückgang')).toContainText('−2,0 %');
+});
+
+// Einzahlungen zählen nie als Gewinn und verschieben die Rendite nicht (zeitgewichtet).
+// Bot: −5 %, dann 150 € Einzahlung, dann −4 %. Sparplan: +2 %, Einzahlung, +2 %.
+const MIT_EINZAHLUNG = [
+  { ...RUNS[0], zeit: '2026-12-02T09:15:05+00:00', portfolio_value_eur: 280.8, deposited_eur: 300, benchmark_value_eur: 309.06 },
+  { ...RUNS[0], zeit: '2026-12-01T09:15:05+00:00', portfolio_value_eur: 292.5, deposited_eur: 300, benchmark_value_eur: 303 },
+  { ...RUNS[0], zeit: '2026-11-06T09:15:05+00:00', portfolio_value_eur: 142.5, deposited_eur: 150, benchmark_value_eur: 153 },
+  { ...RUNS[0], zeit: ZEIT, portfolio_value_eur: 150, deposited_eur: 150, benchmark_value_eur: 150 },
+];
+
+test('Rendite im Vergleich ist zeitgewichtet: eine Einzahlung ändert sie nicht', async ({ page }) => {
+  const s = status({ letzter_lauf: MIT_EINZAHLUNG[0].zeit });
+  await supabase(page, { runs: MIT_EINZAHLUNG, status: [{ ...s, kennzahlen: { ...s.kennzahlen, generated_at: MIT_EINZAHLUNG[0].zeit, summary: { ...s.kennzahlen.summary, value: 280.8, bench: 309.06, deposited: 300 } } }] });
+  await anmelden(page);
+  const e = await ende(page);
+  // Bot 0,95 × 0,96 = 0,912. Sparplan 1,02 × 1,02 = 1,0404. Die Einzahlung dazwischen spielt keine Rolle.
+  expect(e.pct).toEqual({ v: -8.8, b: 4.04 });
+  expect(e.eur).toEqual({ v: 280.8, b: 309.06 });
+  const zeile = (n: string) => page.locator('#vs-table tr', { hasText: n });
+  await expect(zeile('Rendite')).toContainText('zeitgewichtet');
+  await expect(zeile('Rendite')).toContainText('−8,8 %');
+  await expect(zeile('Rendite')).toContainText('+4,0 %');
+  // Der Gewinn in Euro bleibt Wert minus Einzahlungen, dazu wie in den anderen Tabs in Prozent der Einzahlungen.
+  await expect(zeile('Gewinn')).toContainText('% der Einzahlungen');
+  await expect(page.locator('#vs-sub')).toContainText('9,4 % der Einzahlungen'); // 28,26 € von 300 €
+  await expect(zeile('Gewinn')).toContainText('−19,20 €');
+  await expect(zeile('Gewinn')).toContainText('−6,4 %');
+  await expect(zeile('Gewinn')).toContainText('+9,06 €');
+  await expect(zeile('Gewinn')).toContainText('+3,0 %');
+  // Die Tabelle passt aufs iPhone.
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(393);
+  // Wert je eingezahltem Euro hätte nur 6,4 % Rückgang gezeigt, weil die Einzahlung den Verlust verdünnt.
+  await expect(zeile('Größter Rückgang')).toContainText('−8,8 %');
+  await expect(zeile('Größter Rückgang')).toContainText('0,0 %');
+  await expect(zeile('Größter Rückgang')).not.toContainText('−0,0');
+  await page.click('#unit button[data-u="pct"]');
+  await expect(page.locator('#hint-vergleich')).toContainText('Einzahlungen herausgerechnet');
+  // In den Tabs Bot und Sparplan steht weiter der Gewinn in Prozent der Einzahlungen.
+  await page.click('#tabbtn-bot');
+  await expect(page.locator('#delta')).toContainText('−19,20');
+  await expect(page.locator('#delta')).toContainText('−6,4 %');
 });
 
 test('vor dem ersten Lauf starten beide gleichauf, ohne Fehler', async ({ page }) => {
@@ -454,7 +496,7 @@ test('Kurvenende, letzter Balken, Kopfzeile und Kennzahlen sind identisch', asyn
   expect(e.pct).toEqual({ v: 4, b: 2 });
   expect(e.balken).toBe(3);
   await expect(page.locator('#vs-big')).toHaveText(`${fmt(e.balken)} €`);
-  await expect(page.locator('#vs-sub')).toContainText(`${fmt1(e.pct.v - e.pct.b)} Prozentpunkte`);
+  await expect(page.locator('#vs-sub')).toContainText(`${fmt1(e.balken / 150 * 100)} % der Einzahlungen`); // 150 € eingezahlt
   const zeile = (n: string) => page.locator('#vs-table tr', { hasText: n });
   await expect(zeile('Wert')).toContainText(`${fmt(e.eur.v)} €`);
   await expect(zeile('Wert')).toContainText(`${fmt(e.eur.b)} €`);

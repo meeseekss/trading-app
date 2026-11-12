@@ -6,7 +6,8 @@ Reines HTML, CSS und JavaScript ohne Build-Schritt. Hier liegen nur Code und öf
 
 ```
 index.html, app.css     Oberfläche, Gestaltung aus dem Dashboard des Bots
-js/dashboard.js         Darstellung und Diagramme, aus dashboard_template.html übernommen
+js/dashboard.js         Darstellung und Diagramme, aus dashboard_template.html übernommen;
+                        Rendite und Rückgang im Vergleich zeitgewichtet (zeitgewichtet())
 js/app.js               Anmeldung, Daten, Not-Aus, Mitteilungen
 js/konfig.js            Supabase-URL, anon-Schlüssel, öffentlicher VAPID-Schlüssel
 sw.js, manifest.webmanifest, icons/   Installation auf dem Home-Bildschirm und Offline-Start
